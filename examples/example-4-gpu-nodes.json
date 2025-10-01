@@ -1,0 +1,168 @@
+{
+   "Partitions": [
+      {
+         "PartitionName": "gpu",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "a100",
+               "MaxNodes": 10,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "96",
+                  "RealMemory": "1100000",
+                  "Gres": "gpu:a100:8",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "price-capacity-optimized",
+                   "InstanceInterruptionBehavior": "terminate"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "gpu-a100-template",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "p4d.24xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ],
+               "Tags": [
+                  {
+                     "Key": "NodeGroup",
+                     "Value": "gpu-a100"
+                  },
+                  {
+                     "Key": "GPUType",
+                     "Value": "A100"
+                  }
+               ]
+            },
+            {
+               "NodeGroupName": "v100",
+               "MaxNodes": 20,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "32",
+                  "RealMemory": "244000",
+                  "Gres": "gpu:v100:4",
+                  "Weight": "2"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "price-capacity-optimized",
+                   "InstanceInterruptionBehavior": "terminate"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "gpu-v100-template",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "p3.8xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ],
+               "Tags": [
+                  {
+                     "Key": "NodeGroup",
+                     "Value": "gpu-v100"
+                  },
+                  {
+                     "Key": "GPUType",
+                     "Value": "V100"
+                  }
+               ]
+            },
+            {
+               "NodeGroupName": "t4",
+               "MaxNodes": 50,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "16",
+                  "RealMemory": "64000",
+                  "Gres": "gpu:t4:1",
+                  "Weight": "3"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "price-capacity-optimized",
+                   "InstanceInterruptionBehavior": "terminate"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "gpu-t4-template",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "g4dn.4xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ],
+               "Tags": [
+                  {
+                     "Key": "NodeGroup",
+                     "Value": "gpu-t4"
+                  },
+                  {
+                     "Key": "GPUType",
+                     "Value": "T4"
+                  }
+               ]
+            }
+         ],
+         "PartitionOptions": {
+            "Default": "no",
+            "TRESBillingWeights": "GRES/gpu=100"
+         }
+      },
+      {
+         "PartitionName": "cpu",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "compute",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "8",
+                  "RealMemory": "16000",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "price-capacity-optimized"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "cpu-template",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.2xlarge"
+                  },
+                  {
+                     "InstanceType": "c6i.2xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ]
+            }
+         ],
+         "PartitionOptions": {
+            "Default": "yes"
+         }
+      }
+   ]
+}

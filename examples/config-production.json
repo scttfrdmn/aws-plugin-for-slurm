@@ -1,0 +1,16 @@
+{
+   "LogLevel": "WARNING",
+   "LogFileName": "/var/log/slurm/aws_plugin.log",
+   "SlurmBinPath": "/opt/slurm/bin",
+   "SlurmConf": {
+      "PrivateData": "CLOUD",
+      "ResumeProgram": "/opt/slurm/etc/aws/resume.py",
+      "SuspendProgram": "/opt/slurm/etc/aws/suspend.py",
+      "ResumeRate": 50,
+      "SuspendRate": 50,
+      "ResumeTimeout": 600,
+      "SuspendTime": 900,
+      "TreeWidth": 60000,
+      "GresTypes": "gpu"
+   }
+}

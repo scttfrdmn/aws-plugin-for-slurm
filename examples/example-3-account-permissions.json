@@ -1,0 +1,80 @@
+{
+   "Partitions": [
+      {
+         "PartitionName": "aws",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "node",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "4",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "on-demand",
+               "OnDemandOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "template-name",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.xlarge"
+                  },
+                  {
+                     "InstanceType": "c4.xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ]
+            }
+         ],
+         "PartitionOptions": {
+            "TRESBillingWeights": "cpu=30",
+            "AllowAccounts": "standard,VIP"
+         }
+      },
+      {
+         "PartitionName": "awsspot",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "node",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "4",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "template-name",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.xlarge"
+                  },
+                  {
+                     "InstanceType": "c4.xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ]
+            }
+         ],
+         "PartitionOptions": {
+            "TRESBillingWeights": "cpu=10",
+            "AllowAccounts": "standard"
+         }
+      }
+   ]
+}

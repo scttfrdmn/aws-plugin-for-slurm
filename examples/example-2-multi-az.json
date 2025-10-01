@@ -1,0 +1,96 @@
+{
+   "Partitions": [
+      {
+         "PartitionName": "aws",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "spot4vCPU",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "4",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "template-name",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.xlarge"
+                  },
+                  {
+                     "InstanceType": "c4.xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ]
+            },
+            {
+               "NodeGroupName": "spot4vCPUa",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "4",
+                  "Features": "us-east-1a",
+                  "Weight": "2"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "template-name",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.xlarge"
+                  },
+                  {
+                     "InstanceType": "c4.xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111"
+               ]
+            },
+            {
+               "NodeGroupName": "spot4vCPUb",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "4",
+                  "Features": "us-east-1b",
+                  "Weight": "2"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "template-name",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.xlarge"
+                  },
+                  {
+                     "InstanceType": "c4.xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-22222222"
+               ]
+            }
+         ]
+      }
+   ]
+}

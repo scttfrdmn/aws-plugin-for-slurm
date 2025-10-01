@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Deploy an example Slurm headnode with the AWS plugin for Slurm (version 2)
+Description: Deploy an example Slurm headnode with the AWS plugin for Slurm (version 3)
 
 Parameters:
   SlurmPackageUrl:
@@ -9,7 +9,7 @@ Parameters:
 
   PluginPrefixUrl:
     Type: String
-    Default: https://github.com/aws-samples/aws-plugin-for-slurm/raw/plugin-v2/
+    Default: https://github.com/scttfrdmn/aws-plugin-for-slurm/raw/plugin-v3/
     Description: Path to the plugin files
 
   VpcId:

@@ -1,0 +1,77 @@
+{
+   "Partitions": [
+      {
+         "PartitionName": "aws",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "ondemand",
+               "MaxNodes": 10,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "4",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "on-demand",
+               "OnDemandOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "template-name",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ],
+               "Tags": [
+                  {
+                     "Key": "NodeGroup",
+                     "Value": "ondemand"
+                  }
+               ]
+            },
+            {
+               "NodeGroupName": "spot",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "4",
+                  "Weight": "2"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "template-name",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ],
+               "Tags": [
+                  {
+                     "Key": "NodeGroup",
+                     "Value": "spot"
+                  }
+               ]
+            }
+         ],
+         "PartitionOptions": {
+            "Default": "yes",
+            "TRESBillingWeights": "cpu=4"
+         }
+      }
+   ]
+}
