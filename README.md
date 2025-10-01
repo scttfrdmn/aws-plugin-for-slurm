@@ -1,83 +1,114 @@
 # AWS Plugin for Slurm - Version 3
 
-A Slurm plugin that enables dynamic cloud bursting and elastic HPC clusters using AWS EC2 Fleet.
+A Slurm plugin that enables dynamic cloud bursting from on-premises HPC clusters to AWS.
 
 ## Overview
 
-[Slurm](https://slurm.schedmd.com/) is a popular HPC cluster management system. This plugin enables Slurm to dynamically launch and terminate compute resources in AWS, taking advantage of cloud elasticity and pay-per-use pricing.
+[Slurm](https://slurm.schedmd.com/) is a popular HPC cluster management system. This plugin enables your **on-premises Slurm cluster** to dynamically burst into AWS when local compute capacity is exhausted, giving you access to virtually unlimited resources on demand.
 
-**Key Features:**
-- Support for EC2 Spot and On-Demand instances
-- Instance type diversification via EC2 Fleet
-- Decoupled node names from hostnames/IPs
-- Robust error handling for failed launches
-- Works with headnodes located anywhere (on-premises or cloud)
+**Primary Use Case: On-Premises → AWS Cloud Bursting**
 
-**Use Cases:**
-- **Cloud Bursting** - Dynamically allocate AWS resources alongside on-premises infrastructure
-- **Elastic HPC Clusters** - Deploy fully cloud-based HPC environments as an alternative to managed solutions like [AWS ParallelCluster](https://aws.amazon.com/hpc/parallelcluster/)
+```
+┌─────────────────────────────┐         ┌──────────────────────────┐
+│  Your Data Center           │         │  AWS Cloud               │
+│                             │         │                          │
+│  ┌────────────────────┐     │         │  ┌────────────────────┐ │
+│  │  Slurm Headnode    │◄────┼─────────┼─►│  Burst Compute     │ │
+│  │  (stays on-prem)   │     │  VPN/DX │  │  Nodes (dynamic)   │ │
+│  └────────────────────┘     │         │  └────────────────────┘ │
+│                             │         │                          │
+│  ┌────────────────────┐     │         │  - Launch on demand     │
+│  │  Static Compute    │     │         │  - Terminate when idle  │
+│  │  (your hardware)   │     │         │  - Pay only for usage   │
+│  └────────────────────┘     │         │                          │
+└─────────────────────────────┘         └──────────────────────────┘
+```
+
+**Benefits:**
+- **Keep your existing cluster** - Headnode and static nodes stay on-premises
+- **Overflow capacity** - Burst to AWS only when you need it
+- **Cost efficient** - Pay for cloud compute only when actually used
+- **Access to specialized hardware** - GPU instances, high-memory nodes, etc.
+- **No cluster migration** - Works alongside your current infrastructure
 
 ## What's New in Version 3
 
-Version 3 is a complete rewrite of the [original plugin](https://github.com/aws-samples/aws-plugin-for-slurm) (2018) with major improvements:
+Version 3 focuses on the **real-world use case**: bursting from on-premises to AWS.
 
+**New in v3:**
+- **Comprehensive on-prem bursting guide** - Step-by-step VPN setup, AMI building, troubleshooting
+- **Automated AMI builder** - Packer template ensures exact Slurm version match
+- **Connectivity validator** - Pre-flight checks for network, NFS, Munge
+- **AWS CLI-first documentation** - Infrastructure as code, no clickops
+- **Enhanced security** - IMDSv2, Munge via Secrets Manager, least privilege IAM
+- **GPU/GRES support** - Complete documentation and examples
+
+**From v2:**
 - EC2 Fleet integration for Spot instances and instance type flexibility
 - Decoupled node identity from EC2 instance attributes
 - Improved error handling and node state management
-- Better documentation and example configurations
 
-## Quick Start
+## Getting Started
 
-The fastest way to try the plugin is using the CloudFormation template to deploy a pre-configured headnode.
+### For On-Premises Clusters (Primary Use Case)
 
-### Prerequisites
+**You have**: Existing Slurm cluster on-premises
+**You want**: Burst to AWS for overflow capacity
 
-- AWS account with VPC and subnets
-- Two subnets in different availability zones
-- SSH key pair (optional, for accessing the headnode)
+**Start here**: **[On-Premises to AWS Cloud Bursting Guide](docs/onprem-to-aws-bursting.md)** ⭐
 
-### Deploy with CloudFormation
+This comprehensive guide covers:
+1. Establishing network connectivity (VPN/Direct Connect)
+2. Building an AMI that matches your Slurm version
+3. Configuring NFS access from AWS to on-prem
+4. Setting up Munge authentication
+5. Testing and validation
 
-1. Create a CloudFormation stack using [`template.yaml`](template.yaml)
-2. Provide parameters:
-   - VPC ID
-   - Two subnet IDs (in different availability zones)
-   - (Optional) SSH key pair
+**Quick validation** - Before you start, test your connectivity:
+```bash
+./scripts/validate-onprem-connectivity.sh \
+  --headnode 10.0.1.100 \
+  --region us-east-1 \
+  --vpc vpc-xxxxx \
+  --subnet subnet-xxxxx
+```
 
-The stack creates:
-- Security group (allows SSH and inter-node traffic)
-- IAM roles for headnode and compute nodes
-- Launch template for compute nodes
-- Headnode instance with pre-configured plugin
+**Automated AMI building** - Use our Packer template:
+```bash
+cd examples/packer
+cp variables.pkrvars.hcl.example variables.pkrvars.hcl
+# Edit variables.pkrvars.hcl with your settings
+packer build -var-file=variables.pkrvars.hcl slurm-compute-node.pkr.hcl
+```
 
-### Test the Deployment
+### For All-AWS Deployments (Alternative Use Case)
 
-1. Connect to the headnode via SSH (instance ID is in CloudFormation outputs)
+**You have**: Nothing yet, want to deploy entirely in AWS
+**You want**: Self-managed Slurm cluster in AWS
 
-2. Submit a test job:
-   ```bash
-   srun -p aws hostname
-   ```
+**Consider first**: [AWS ParallelCluster](https://aws.amazon.com/hpc/parallelcluster/) - AWS's managed HPC solution with better AWS integration, auto-scaling, and support.
 
-3. Monitor instance launch in the EC2 console
+**If you specifically need this plugin approach**, see:
+- **[CloudFormation Quick Start](docs/cloudformation.md)** - Deploy test cluster in ~15 minutes
+- **[Manual Installation](docs/manual-installation.md)** - For production all-AWS deployments
 
-4. After job completion, the node will idle for `SuspendTime` seconds before terminating
-
-The sample configuration includes:
-- Single partition: `aws`
-- Single node group: `node`
-- Up to 100 on-demand instances
+**Note**: The CloudFormation template is useful for:
+- Testing the plugin before on-prem deployment
+- Quick proof-of-concept clusters
+- Specific use cases where you inherited this plugin and need to maintain compatibility
 
 ## How It Works
 
 The plugin integrates with Slurm's [power save mode](https://slurm.schedmd.com/power_save.html):
 
-1. **Node Declaration** - All potential cloud nodes are pre-declared in Slurm configuration in `CLOUD` power save state
-2. **Job Submission** - When work is assigned to cloud nodes, Slurm calls `ResumeProgram`
-3. **Launch Instances** - `ResumeProgram` creates an EC2 Fleet and updates node IP addresses in Slurm
-4. **Run Jobs** - Nodes become available and process jobs
-5. **Idle Timeout** - After `SuspendTime` seconds of idle, Slurm calls `SuspendProgram`
-6. **Terminate Instances** - `SuspendProgram` terminates EC2 instances and returns nodes to power save state
+1. **Pre-declaration** - Cloud nodes are declared in `slurm.conf` in `CLOUD` state (powered down)
+2. **Job submission** - When work is assigned to cloud nodes, Slurm calls `ResumeProgram`
+3. **Instance launch** - Plugin creates EC2 Fleet, instances boot and mount NFS from headnode
+4. **IP injection** - Plugin uses `scontrol update NodeName=X NodeAddr=IP` to register nodes
+5. **Job execution** - Nodes join cluster and process workloads
+6. **Auto-termination** - After `SuspendTime` seconds idle, Slurm calls `SuspendProgram` and instances terminate
+
+**Key insight**: No DNS required! The plugin injects private IPs directly into Slurm.
 
 ```
 ┌──────────────┐    Resume     ┌─────────────┐
@@ -85,23 +116,23 @@ The plugin integrates with Slurm's [power save mode](https://slurm.schedmd.com/p
 │ Scheduler    │               │ Launch      │
 └──────────────┘               └─────────────┘
        │                              │
-       │ Job Complete                 │ Instances
-       │ + Idle Time                  │ Running
+       │ scontrol update              │ Instances
+       │ NodeAddr=10.1.1.50           │ Running
        v                              v
 ┌──────────────┐    Suspend    ┌─────────────┐
 │ Slurm        │──────────────>│ Terminate   │
-│ SuspendTime  │               │ Instances   │
+│ (idle nodes) │               │ Instances   │
 └──────────────┘               └─────────────┘
 ```
 
 ## Architecture
 
-The plugin consists of:
+### Plugin Components
 
-- **Python Scripts**
+- **Python Scripts** (run on headnode)
   - `resume.py` - Launch EC2 instances when Slurm resumes nodes
   - `suspend.py` - Terminate instances when Slurm suspends nodes
-  - `change_state.py` - Periodic cleanup of stuck nodes (runs via cron)
+  - `change_state.py` - Periodic cleanup of stuck nodes (cron)
   - `generate_conf.py` - Generate Slurm configuration from JSON
   - `common.py` - Shared utilities
 
@@ -109,116 +140,104 @@ The plugin consists of:
   - `config.json` - Plugin and Slurm parameters
   - `partitions.json` - Partition and node group specifications
 
-All files must be in the same directory on the headnode.
+### Tools Provided
 
-## Installation
-
-Choose your installation method:
-
-- **[Quick Start with CloudFormation](#quick-start)** (recommended for testing)
-- **[Manual Installation](docs/manual-installation.md)** (for production deployments)
-
-## Configuration
-
-### Basic Configuration
-
-1. Create `config.json` with plugin settings
-2. Create `partitions.json` defining node groups
-3. Run `generate_conf.py` to create Slurm config
-4. Append generated config to `slurm.conf`
-5. Reconfigure Slurm
-
-### Configuration Files
-
-See the [Configuration Reference](docs/configuration.md) for detailed parameter descriptions.
-
-### Example Configurations
-
-The [examples](examples/) directory contains ready-to-use configurations:
-
-- [On-Demand priority with Spot overflow](examples/example-1-ondemand-and-spot.json)
-- [Multi-AZ with AZ-specific node groups](examples/example-2-multi-az.json)
-- [Account-based access control](examples/example-3-account-permissions.json)
-
-## Plugin Components
-
-### resume.py
-
-The `ResumeProgram` executed by Slurm to launch instances:
-
-1. Retrieves the list of nodes to resume
-2. Groups nodes by partition and node group
-3. Creates EC2 Fleet for each group
-4. Tags instances with node names
-5. Updates node IP addresses in Slurm via `scontrol`
-
-**Manual testing:**
-```bash
-/path/to/resume.py partition-nodegroup-0
-```
-
-### suspend.py
-
-The `SuspendProgram` executed by Slurm to terminate instances:
-
-1. Retrieves the list of nodes to suspend
-2. Finds EC2 instance ID for each node (via `Name` tag)
-3. Terminates the instances
-
-**Manual testing:**
-```bash
-/path/to/suspend.py partition-nodegroup-0
-```
-
-### change_state.py
-
-Periodic maintenance script (run via cron every minute):
-
-- Changes state of nodes stuck in transient states
-- Moves `DOWN*` nodes to `POWER_DOWN` state
-- Handles nodes that failed to respond within `ResumeTimeout`
-
-### generate_conf.py
-
-Configuration generator:
-
-- Reads `config.json` and `partitions.json`
-- Generates Slurm configuration in `slurm.conf.aws`
-- Creates node and partition definitions
+- **`examples/packer/`** - Automated AMI builder (solves the "matching Slurm version" problem)
+- **`scripts/validate-onprem-connectivity.sh`** - Pre-deployment connectivity testing
+- **`examples/`** - Ready-to-use configuration examples
 
 ## Documentation
 
-- [Configuration Reference](docs/configuration.md) - Detailed config.json and partitions.json documentation
-- [Manual Installation Guide](docs/manual-installation.md) - Step-by-step installation instructions
-- [Troubleshooting](docs/troubleshooting.md) - Common issues and solutions
-- [Examples](examples/) - Sample configurations for common use cases
+### Primary Documentation (On-Prem Bursting)
+- **[On-Premises to AWS Bursting Guide](docs/onprem-to-aws-bursting.md)** ⭐ - Complete setup guide
+- [Configuration Reference](docs/configuration.md) - config.json and partitions.json parameters
+- [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
+- [Security Best Practices](docs/security.md) - IAM, network security, Munge key management
+
+### Additional Documentation
+- [CloudFormation Deployment](docs/cloudformation.md) - All-AWS cluster deployment
+- [Manual Installation](docs/manual-installation.md) - Step-by-step for any deployment
+- [Networking Guide](docs/networking.md) - VPC architecture, VPN, Direct Connect
+- [Performance Tuning](docs/performance-tuning.md) - Optimization recommendations
+- [Monitoring](docs/monitoring.md) - CloudWatch integration
+- [Advanced Usage](docs/advanced-usage.md) - Multi-region, GPU, EFA, FSx
+- [Testing](docs/testing.md) - Validation procedures
+- [Upgrade Guide](docs/upgrade-guide.md) - Migrating from v2
+
+### Examples
+- [On-Demand + Spot overflow](examples/example-1-ondemand-and-spot.json)
+- [Multi-AZ deployment](examples/example-2-multi-az.json)
+- [Account-based permissions](examples/example-3-account-permissions.json)
+- [GPU workloads](examples/example-4-gpu-nodes.json)
+- [Basic config](examples/config-basic.json)
+- [Production config](examples/config-production.json)
 
 ## Requirements
 
-### Slurm
-- Slurm with power save support (tested with 20.02.3)
-- Headnode can be located anywhere (on-premises or AWS)
+### On-Premises Requirements
+- **Slurm cluster** with power save mode (tested with 20.02.3+)
+- **Network connectivity** to AWS VPC (VPN or Direct Connect)
+- **NFS server** accessible from AWS (or use EFS)
+- **Munge** authentication configured
+- **Python 3.6+** with boto3 and AWS CLI on headnode
 
-### Python
-- Python 3.6 or higher
-- boto3 library
-- AWS CLI (for credential configuration)
+### AWS Requirements
+- **VPC** with private subnets for compute nodes
+- **EC2 launch template(s)** - Use Packer template to build AMI
+- **IAM roles** for headnode (or IAM user) and compute nodes
+- **VPN or Direct Connect** for connectivity to on-prem
 
-### AWS
-- VPC with subnets for compute nodes
-- EC2 launch template(s)
-- IAM roles for headnode and compute nodes
-- Private connectivity if headnode is off-AWS (VPN, Direct Connect, etc.)
+### Critical: AMI Must Match On-Prem Slurm Version
 
-### Compute Nodes
-- Must retrieve cluster name from EC2 instance tag
-- Instance metadata tags must be enabled
+Your AWS AMI **must** have the exact same Slurm version as your on-prem cluster:
 
-See [Manual Installation Guide](docs/manual-installation.md) for detailed prerequisites.
+```bash
+# On your headnode:
+slurmctld --version
+# slurm 20.02.3
+
+# Your AMI must also be 20.02.3 - not 20.02.4, not 21.08.0, exactly 20.02.3
+```
+
+**Solution**: Use our [Packer template](examples/packer/) to automate this.
+
+## Quick Reference
+
+### Test Connectivity
+```bash
+./scripts/validate-onprem-connectivity.sh \
+  --headnode YOUR_HEADNODE_IP \
+  --region us-east-1 \
+  --vpc YOUR_VPC_ID \
+  --subnet YOUR_SUBNET_ID
+```
+
+### Build Matching AMI
+```bash
+cd examples/packer
+packer build -var-file=variables.pkrvars.hcl slurm-compute-node.pkr.hcl
+```
+
+### Submit Cloud Burst Job
+```bash
+# After setup is complete:
+srun -p cloud hostname
+```
+
+### Monitor Cloud Nodes
+```bash
+# Watch Slurm state
+watch sinfo -p cloud
+
+# Watch AWS instances
+aws ec2 describe-instances \
+  --filters "Name=tag:ManagedBy,Values=Slurm" \
+  --query "Reservations[].Instances[].[InstanceId,State.Name,PrivateIpAddress]"
+```
 
 ## IAM Permissions
 
-### Headnode Permissions
+### Headnode Role (or IAM User)
 
 ```json
 {
@@ -254,7 +273,7 @@ See [Manual Installation Guide](docs/manual-installation.md) for detailed prereq
 }
 ```
 
-### Compute Node Permissions
+### Compute Node Role
 
 ```json
 {
@@ -269,45 +288,34 @@ See [Manual Installation Guide](docs/manual-installation.md) for detailed prereq
 }
 ```
 
-## Monitoring and Operations
+## Common Issues
 
-### Logs
+### "Nodes stuck in alloc# state"
+**Cause**: Network connectivity issues or AMI problems
+**Solution**: Run connectivity validator, check VPN status, verify AMI Slurm version matches
 
-- Plugin logs: Check `LogFileName` configured in `config.json` (default: `aws_plugin.log`)
-- Slurm logs: Standard slurmctld logs
+### "NFS mount fails from AWS"
+**Cause**: Firewall blocking port 2049 or NFS not exported to AWS subnet
+**Solution**: Check firewall rules, add AWS CIDR to `/etc/exports`
 
-### Monitoring Commands
+### "Munge authentication fails"
+**Cause**: Key mismatch or time skew
+**Solution**: Verify md5sum of Munge key matches on-prem, enable chrony/NTP
 
-```bash
-# View partition status
-sinfo
+See [Troubleshooting Guide](docs/troubleshooting.md) for more.
 
-# View node details
-scontrol show nodes
+## Support
 
-# View queue
-squeue
+This is a community-maintained project. For help:
 
-# View plugin logs
-tail -f /var/log/slurm/aws.log
-```
-
-### Common Operations
-
-```bash
-# Reconfigure Slurm after config changes
-scontrol reconfigure
-
-# Manually drain a node
-scontrol update NodeName=aws-node-0 State=DRAIN Reason="maintenance"
-
-# Resume a drained node
-scontrol update NodeName=aws-node-0 State=RESUME
-```
-
-## Troubleshooting
-
-See the [Troubleshooting Guide](docs/troubleshooting.md) for solutions to common problems.
+1. Check the [On-Prem Bursting Guide](docs/onprem-to-aws-bursting.md)
+2. Review [Troubleshooting](docs/troubleshooting.md)
+3. Search [GitHub Issues](https://github.com/scttfrdmn/aws-plugin-for-slurm/issues)
+4. Open a new issue with:
+   - Plugin version
+   - Slurm version (on-prem and AMI)
+   - Network setup (VPN/Direct Connect)
+   - Error logs from `/var/log/slurm/aws_plugin.log`
 
 ## Contributing
 
@@ -315,21 +323,13 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-This project is licensed under the Apache License 2.0. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
 
 Original work Copyright 2020 Amazon.com, Inc. or its affiliates (MIT-0 License)
 Modified work Copyright 2025 Scott Friedman (Apache License 2.0)
 
-## Support
-
-This is a sample project provided as-is. For issues and questions:
-
-- Check the [Troubleshooting Guide](docs/troubleshooting.md)
-- Review [Slurm documentation](https://slurm.schedmd.com/documentation.html)
-- Open an issue on GitHub
-
 ## Related Projects
 
-- [AWS ParallelCluster](https://aws.amazon.com/hpc/parallelcluster/) - Managed HPC cluster solution
+- [AWS ParallelCluster](https://aws.amazon.com/hpc/parallelcluster/) - For all-AWS HPC clusters (recommended over this plugin for AWS-only deployments)
 - [Slurm Documentation](https://slurm.schedmd.com/) - Official Slurm documentation
 - [EC2 Fleet](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-fleet.html) - AWS EC2 Fleet documentation
