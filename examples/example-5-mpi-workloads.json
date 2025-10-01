@@ -30,10 +30,13 @@
                },
                "LaunchTemplateOverrides": [
                   {
-                     "InstanceType": "c5n.18xlarge"
+                     "InstanceType": "c7gn.16xlarge"
                   },
                   {
-                     "InstanceType": "c6i.32xlarge"
+                     "InstanceType": "c6in.32xlarge"
+                  },
+                  {
+                     "InstanceType": "c7i.48xlarge"
                   }
                ],
                "SubnetIds": [
