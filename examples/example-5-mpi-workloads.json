@@ -1,0 +1,112 @@
+{
+   "Partitions": [
+      {
+         "PartitionName": "mpi",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "compute",
+               "MaxNodes": 64,
+               "Region": "us-east-1",
+               "EnableMPISupport": true,
+               "PlacementGroupName": "slurm-mpi-pg",
+               "MPIOptions": {
+                  "WaitForAllNodes": true,
+                  "TimeoutSeconds": 300,
+                  "HealthChecks": ["network", "slurmd"]
+               },
+               "SlurmSpecifications": {
+                  "CPUs": "96",
+                  "RealMemory": "190000",
+                  "Feature": "lowlatency",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "on-demand",
+               "OnDemandOptions": {
+                   "AllocationStrategy": "lowest-price"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "mpi-compute-template",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5n.18xlarge"
+                  },
+                  {
+                     "InstanceType": "c6i.32xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111"
+               ],
+               "Tags": [
+                  {
+                     "Key": "Workload",
+                     "Value": "MPI"
+                  },
+                  {
+                     "Key": "NodeGroup",
+                     "Value": "mpi-compute"
+                  },
+                  {
+                     "Key": "ManagedBy",
+                     "Value": "Slurm"
+                  }
+               ]
+            }
+         ],
+         "PartitionOptions": {
+            "Default": "no",
+            "OverSubscribe": "NO"
+         }
+      },
+      {
+         "PartitionName": "cpu",
+         "NodeGroups": [
+            {
+               "NodeGroupName": "general",
+               "MaxNodes": 100,
+               "Region": "us-east-1",
+               "SlurmSpecifications": {
+                  "CPUs": "8",
+                  "RealMemory": "16000",
+                  "Weight": "1"
+               },
+               "PurchasingOption": "spot",
+               "SpotOptions": {
+                   "AllocationStrategy": "price-capacity-optimized"
+               },
+               "LaunchTemplateSpecification": {
+                  "LaunchTemplateName": "cpu-template",
+                  "Version": "$Latest"
+               },
+               "LaunchTemplateOverrides": [
+                  {
+                     "InstanceType": "c5.2xlarge"
+                  },
+                  {
+                     "InstanceType": "c6i.2xlarge"
+                  }
+               ],
+               "SubnetIds": [
+                  "subnet-11111111",
+                  "subnet-22222222"
+               ],
+               "Tags": [
+                  {
+                     "Key": "Workload",
+                     "Value": "General"
+                  },
+                  {
+                     "Key": "ManagedBy",
+                     "Value": "Slurm"
+                  }
+               ]
+            }
+         ],
+         "PartitionOptions": {
+            "Default": "yes"
+         }
+      }
+   ]
+}

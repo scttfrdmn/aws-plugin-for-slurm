@@ -111,6 +111,44 @@ def validate_partitions(data):
             assert 'SubnetIds' in nodegroup, 'Missing "SubnetIds" in root["Partitions"][%s]["NodeGroups"][%s]' %(i_partition, i_nodegroup)
             assert isinstance(nodegroup['SubnetIds'], list), 'root["Partitions"][%s]["NodeGroups"][%s]["SubnetIds"] is not a dict' %(i_partition, i_nodegroup)
 
+            # Validate MPI-specific fields (optional)
+            if 'EnableMPISupport' in nodegroup:
+                assert isinstance(nodegroup['EnableMPISupport'], bool), \
+                    'root["Partitions"][%s]["NodeGroups"][%s]["EnableMPISupport"] must be boolean' %(i_partition, i_nodegroup)
+
+            if 'PlacementGroupName' in nodegroup:
+                assert isinstance(nodegroup['PlacementGroupName'], str), \
+                    'root["Partitions"][%s]["NodeGroups"][%s]["PlacementGroupName"] must be string' %(i_partition, i_nodegroup)
+
+            if 'MPIOptions' in nodegroup:
+                assert isinstance(nodegroup['MPIOptions'], dict), \
+                    'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"] must be dict' %(i_partition, i_nodegroup)
+
+                mpi_options = nodegroup['MPIOptions']
+
+                if 'WaitForAllNodes' in mpi_options:
+                    assert isinstance(mpi_options['WaitForAllNodes'], bool), \
+                        'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["WaitForAllNodes"] must be boolean' %(i_partition, i_nodegroup)
+
+                if 'TimeoutSeconds' in mpi_options:
+                    assert isinstance(mpi_options['TimeoutSeconds'], int), \
+                        'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["TimeoutSeconds"] must be integer' %(i_partition, i_nodegroup)
+                    assert mpi_options['TimeoutSeconds'] > 0, \
+                        'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["TimeoutSeconds"] must be positive' %(i_partition, i_nodegroup)
+
+                if 'HealthChecks' in mpi_options:
+                    assert isinstance(mpi_options['HealthChecks'], list), \
+                        'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["HealthChecks"] must be array' %(i_partition, i_nodegroup)
+                    valid_checks = ['network', 'slurmd', 'nfs']
+                    for check in mpi_options['HealthChecks']:
+                        assert check in valid_checks, \
+                            'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["HealthChecks"] contains invalid check: %s (valid: %s)' \
+                            %(i_partition, i_nodegroup, check, ','.join(valid_checks))
+
+                if 'RequirePlacementGroup' in mpi_options:
+                    assert isinstance(mpi_options['RequirePlacementGroup'], bool), \
+                        'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["RequirePlacementGroup"] must be boolean' %(i_partition, i_nodegroup)
+
         if 'PartitionOptions' in partition:
             assert isinstance(partition['PartitionOptions'], dict), 'root["Partitions"][%s]["PartitionOptions"] is not a dict' %(i_partition)
 
