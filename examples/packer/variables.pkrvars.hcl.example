@@ -1,0 +1,24 @@
+# Example variables file for Slurm compute node AMI builder
+# Copy this to variables.pkrvars.hcl and customize for your environment
+
+# Slurm configuration - MUST match your on-premises cluster exactly
+slurm_version = "20.02.3"           # Run 'slurmctld --version' on headnode
+slurm_prefix  = "/nfs/slurm"        # Run 'which slurmctld' on headnode
+
+# AWS configuration
+aws_region = "us-east-1"
+vpc_id     = "vpc-xxxxxxxxxxxxx"    # VPC with internet access for building
+subnet_id  = "subnet-xxxxxxxxxxxxx" # Public subnet or private with NAT
+
+# On-premises headnode configuration
+headnode_ip = "10.0.1.100"          # Your on-prem headnode IP
+nfs_export  = "/nfs"                # NFS export path on headnode
+
+# Munge key location
+munge_key_secretsmanager = "slurm/munge-key"  # AWS Secrets Manager secret name
+# OR
+# munge_key_s3 = "s3://my-bucket/slurm/munge.key"
+
+# Base AMI configuration (usually no need to change)
+base_ami_owner       = "amazon"
+base_ami_name_filter = "amzn2-ami-hvm-*-x86_64-gp2"
