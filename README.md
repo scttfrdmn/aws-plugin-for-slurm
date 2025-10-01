@@ -1,5 +1,7 @@
 # AWS Plugin for Slurm - Version 2
 
+> **⚠️ DEPRECATION NOTICE**: This branch is deprecated. Active development has moved to **[plugin-v3](https://github.com/scttfrdmn/aws-plugin-for-slurm/tree/plugin-v3)**. See [DEPRECATION-NOTICE.md](DEPRECATION-NOTICE.md) for details.
+
 > The [plugin](https://github.com/aws-samples/aws-plugin-for-slurm) initially released in 2018 has been entirely redeveloped. Major changes includes: support of EC2 Fleet capabilities such as Spot or instance type diversification, decoupling node names from instance host names or IP addresses, better error handling when a node fails to respond during its launch.
 
 [Slurm](https://slurm.schedmd.com/) is a popular HPC cluster management system. This plugin enables the Slurm headnode to dynamically deploy and destroy compute resources in the cloud, regardless of where the headnode is executed. Traditional HPC clusters usually distribute jobs over a static set of resources. With this plugin, you can take advantage of the elasticity and pay-per-use model of the cloud to run jobs.
