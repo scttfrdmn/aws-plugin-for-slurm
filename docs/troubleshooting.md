@@ -130,17 +130,33 @@ chmod +x /path/to/plugin/*.py
    ```
 
 2. Check if EC2 instances are actually launching:
-   - Open EC2 console
-   - Filter by the `Name` tag matching your node name
-   - Check instance state and status checks
+   ```bash
+   # Check for instances with matching Name tag
+   aws ec2 describe-instances \
+     --filters "Name=tag:Name,Values=YOUR-NODE-NAME" \
+     --query "Reservations[].Instances[].[InstanceId,State.Name,StateReason.Message]" \
+     --output table
+
+   # Check instance status
+   aws ec2 describe-instance-status \
+     --instance-ids i-xxxxx \
+     --query "InstanceStatuses[0].[InstanceState.Name,SystemStatus.Status,InstanceStatus.Status]" \
+     --output table
+   ```
 
 3. Verify `ResumeTimeout` is sufficient:
    - Consider instance launch time + user data script execution
    - Increase value in `config.json` if needed (e.g., 600 seconds)
 
 4. Check EC2 Fleet errors in CloudTrail:
-   - Look for `CreateFleet` API calls
-   - Review error messages
+   ```bash
+   # Look for recent CreateFleet errors
+   aws cloudtrail lookup-events \
+     --lookup-attributes AttributeKey=EventName,AttributeValue=CreateFleet \
+     --max-results 10 \
+     --query 'Events[?contains(CloudTrailEvent, `errorCode`)].CloudTrailEvent' \
+     --output text | jq '.'
+   ```
 
 ### Nodes Move to DOWN State
 
@@ -245,7 +261,13 @@ chmod +x /path/to/plugin/*.py
 **Common causes**:
 
 1. **Name Tag Missing or Incorrect**
-   - Check EC2 console for `Name` tag on instance
+   ```bash
+   # Check Name tag on all running instances
+   aws ec2 describe-instances \
+     --filters "Name=instance-state-name,Values=running" \
+     --query "Reservations[].Instances[].[InstanceId,Tags[?Key=='Name'].Value|[0]]" \
+     --output table
+   ```
    - Verify tag value matches Slurm node name
    - Ensure plugin isn't overriding the `Name` tag
 

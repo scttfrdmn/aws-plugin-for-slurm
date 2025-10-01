@@ -279,9 +279,29 @@ Grant the headnode AWS permissions to make EC2 requests.
 
 #### If Headnode is on AWS
 
-1. Create an IAM role for EC2 with the following policy:
+**Create IAM role and instance profile:**
 
-```json
+```bash
+# 1. Create trust policy document
+cat > /tmp/trust-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "ec2.amazonaws.com"},
+    "Action": "sts:AssumeRole"
+  }]
+}
+EOF
+
+# 2. Create the IAM role
+aws iam create-role \
+  --role-name SlurmHeadnodeRole \
+  --assume-role-policy-document file:///tmp/trust-policy.json \
+  --description "Role for Slurm headnode to manage EC2 compute nodes"
+
+# 3. Create permissions policy document
+cat > /tmp/headnode-policy.json <<'EOF'
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -313,25 +333,119 @@ Grant the headnode AWS permissions to make EC2 requests.
     }
   ]
 }
+EOF
+
+# Replace ACCOUNT_ID with your AWS account ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+sed -i "s/ACCOUNT_ID/$ACCOUNT_ID/g" /tmp/headnode-policy.json
+
+# 4. Attach inline policy to role
+aws iam put-role-policy \
+  --role-name SlurmHeadnodeRole \
+  --policy-name SlurmHeadnodePolicy \
+  --policy-document file:///tmp/headnode-policy.json
+
+# 5. Create instance profile
+aws iam create-instance-profile \
+  --instance-profile-name SlurmHeadnodeProfile
+
+# 6. Add role to instance profile
+aws iam add-role-to-instance-profile \
+  --instance-profile-name SlurmHeadnodeProfile \
+  --role-name SlurmHeadnodeRole
+
+# 7. Attach the instance profile to your headnode
+HEADNODE_INSTANCE_ID="i-xxxxxxxxxxxxx"  # Replace with your instance ID
+aws ec2 associate-iam-instance-profile \
+  --instance-id $HEADNODE_INSTANCE_ID \
+  --iam-instance-profile Name=SlurmHeadnodeProfile
 ```
 
-2. Attach the role to the headnode instance
-
-See [AWS IAM Roles for EC2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) for detailed instructions.
+**Note:** Replace `ACCOUNT_ID` and `HEADNODE_INSTANCE_ID` with your actual values.
 
 #### If Headnode is Not on AWS
 
-1. Create an IAM user with the above policy
-2. Create an access key for the user (see [Managing Access Keys](https://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_access-keys.html))
-3. Configure AWS credentials on the headnode:
+**Create IAM user with programmatic access:**
 
 ```bash
+# 1. Create IAM user
+aws iam create-user \
+  --user-name slurm-headnode-user \
+  --tags Key=Purpose,Value=SlurmHeadnode
+
+# 2. Create and attach inline policy
+# (Use same policy document from above)
+cat > /tmp/headnode-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "ec2:CreateFleet",
+        "ec2:RunInstances",
+        "ec2:TerminateInstances",
+        "ec2:CreateTags",
+        "ec2:DescribeInstances"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "ec2fleet.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::ACCOUNT_ID:role/EC2ComputeNodeRole"
+    }
+  ]
+}
+EOF
+
+# Replace ACCOUNT_ID
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+sed -i "s/ACCOUNT_ID/$ACCOUNT_ID/g" /tmp/headnode-policy.json
+
+aws iam put-user-policy \
+  --user-name slurm-headnode-user \
+  --policy-name SlurmHeadnodePolicy \
+  --policy-document file:///tmp/headnode-policy.json
+
+# 3. Create access key
+aws iam create-access-key \
+  --user-name slurm-headnode-user \
+  --output json > /tmp/access-key.json
+
+# Extract credentials
+ACCESS_KEY_ID=$(jq -r '.AccessKey.AccessKeyId' /tmp/access-key.json)
+SECRET_ACCESS_KEY=$(jq -r '.AccessKey.SecretAccessKey' /tmp/access-key.json)
+
+echo "Access Key ID: $ACCESS_KEY_ID"
+echo "Secret Access Key: $SECRET_ACCESS_KEY"
+
+# IMPORTANT: Save these credentials securely, then delete the file
+# rm /tmp/access-key.json
+
+# 4. Configure AWS CLI on headnode
 # Default profile
-aws configure
+aws configure set aws_access_key_id $ACCESS_KEY_ID
+aws configure set aws_secret_access_key $SECRET_ACCESS_KEY
+aws configure set region us-east-1  # Set your region
 
 # Or create a named profile (reference in partitions.json ProfileName)
-aws configure --profile profile_name
+aws configure set aws_access_key_id $ACCESS_KEY_ID --profile slurm
+aws configure set aws_secret_access_key $SECRET_ACCESS_KEY --profile slurm
+aws configure set region us-east-1 --profile slurm
 ```
+
+**Security best practice:** Store credentials in AWS Secrets Manager instead of local files.
 
 #### Minimum Required Permissions
 
@@ -345,34 +459,170 @@ iam:CreateServiceLinkedRole (required if you never used EC2 Fleet in your accoun
 iam:PassRole (restrict to ARN of the EC2 role for compute nodes)
 ```
 
-### 4. Create IAM Role for Compute Nodes
+### 5. Create IAM Role for Compute Nodes
 
-Create an IAM role for EC2 compute nodes with a policy allowing `ec2:DescribeTags`.
+**Create IAM role for compute nodes:**
 
-See [Creating an IAM Role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#create-iam-role) for instructions.
+```bash
+# 1. Create trust policy (same as headnode)
+cat > /tmp/compute-trust-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Principal": {"Service": "ec2.amazonaws.com"},
+    "Action": "sts:AssumeRole"
+  }]
+}
+EOF
 
-### 5. Create EC2 Launch Template(s)
+# 2. Create the IAM role
+aws iam create-role \
+  --role-name EC2ComputeNodeRole \
+  --assume-role-policy-document file:///tmp/compute-trust-policy.json \
+  --description "Role for Slurm compute nodes"
 
-Create one or more EC2 launch templates for compute nodes. Each template must specify:
+# 3. Create minimal permissions policy
+cat > /tmp/compute-policy.json <<'EOF'
+{
+  "Version": "2012-10-17",
+  "Statement": [{
+    "Effect": "Allow",
+    "Action": "ec2:DescribeTags",
+    "Resource": "*"
+  }]
+}
+EOF
 
-- **AMI ID** - The Amazon Machine Image for compute nodes
-- **Security Group(s)** - Network security configuration
-- **IAM Instance Profile** - The role created in step 4
-- **Instance Metadata Options** - Set `InstanceMetadataTags` to `enabled`
-- **(Optional) Key Pair** - For SSH access
-- **(Optional) User Data** - Bootstrap scripts to run at launch
+# 4. Attach inline policy
+aws iam put-role-policy \
+  --role-name EC2ComputeNodeRole \
+  --policy-name ComputeNodePolicy \
+  --policy-document file:///tmp/compute-policy.json
 
-You'll need multiple templates if your compute nodes require different values for these parameters.
+# 5. Create instance profile
+aws iam create-instance-profile \
+  --instance-profile-name EC2ComputeNodeProfile
 
-See [Creating a Launch Template](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ec2-launch-templates.html#create-launch-template-define-parameters) for instructions. Note the launch template name or ID for configuration.
+# 6. Add role to instance profile
+aws iam add-role-to-instance-profile \
+  --instance-profile-name EC2ComputeNodeProfile \
+  --role-name EC2ComputeNodeRole
 
-### 6. Create Configuration Files
+# 7. Get the instance profile ARN for use in launch template
+aws iam get-instance-profile \
+  --instance-profile-name EC2ComputeNodeProfile \
+  --query 'InstanceProfile.Arn' \
+  --output text
+```
+
+### 6. Create EC2 Launch Template(s)
+
+**Create launch template for compute nodes:**
+
+```bash
+# 1. Get latest Amazon Linux 2 AMI ID
+AMI_ID=$(aws ec2 describe-images \
+  --owners amazon \
+  --filters "Name=name,Values=amzn2-ami-hvm-*-x86_64-gp2" \
+            "Name=state,Values=available" \
+  --query 'Images | sort_by(@, &CreationDate) | [-1].ImageId' \
+  --output text)
+
+echo "Using AMI: $AMI_ID"
+
+# 2. Get security group ID (create one if needed)
+# Example: Create a basic security group
+VPC_ID="vpc-xxxxxxxxxxxxx"  # Replace with your VPC ID
+
+SG_ID=$(aws ec2 create-security-group \
+  --group-name slurm-compute-nodes \
+  --description "Security group for Slurm compute nodes" \
+  --vpc-id $VPC_ID \
+  --query 'GroupId' \
+  --output text)
+
+# Allow SSH from headnode (optional)
+HEADNODE_SG="sg-xxxxxxxxxxxxx"  # Replace with headnode security group
+aws ec2 authorize-security-group-ingress \
+  --group-id $SG_ID \
+  --source-group $HEADNODE_SG \
+  --protocol all
+
+echo "Security Group: $SG_ID"
+
+# 3. Get the instance profile ARN from step 5
+INSTANCE_PROFILE_ARN=$(aws iam get-instance-profile \
+  --instance-profile-name EC2ComputeNodeProfile \
+  --query 'InstanceProfile.Arn' \
+  --output text)
+
+# 4. Create launch template
+aws ec2 create-launch-template \
+  --launch-template-name slurm-compute-template \
+  --version-description "Initial version for Slurm compute nodes" \
+  --launch-template-data "{
+    \"ImageId\": \"$AMI_ID\",
+    \"IamInstanceProfile\": {
+      \"Arn\": \"$INSTANCE_PROFILE_ARN\"
+    },
+    \"SecurityGroupIds\": [\"$SG_ID\"],
+    \"MetadataOptions\": {
+      \"HttpTokens\": \"required\",
+      \"HttpPutResponseHopLimit\": 1,
+      \"InstanceMetadataTags\": \"enabled\"
+    },
+    \"TagSpecifications\": [{
+      \"ResourceType\": \"instance\",
+      \"Tags\": [{
+        \"Key\": \"ManagedBy\",
+        \"Value\": \"Slurm\"
+      }]
+    }]
+  }"
+
+# 5. Get launch template ID for configuration
+TEMPLATE_ID=$(aws ec2 describe-launch-templates \
+  --launch-template-names slurm-compute-template \
+  --query 'LaunchTemplates[0].LaunchTemplateId' \
+  --output text)
+
+echo "Launch Template ID: $TEMPLATE_ID"
+echo "Use this ID in partitions.json LaunchTemplateId field"
+```
+
+**Optional additions:**
+
+```bash
+# Add SSH key pair (if needed)
+aws ec2 create-launch-template-version \
+  --launch-template-id $TEMPLATE_ID \
+  --source-version 1 \
+  --launch-template-data '{"KeyName":"my-key-pair"}'
+
+# Add user data script (example: mount NFS)
+cat > /tmp/user-data.sh <<'EOF'
+#!/bin/bash
+# Mount NFS from headnode
+mkdir -p /nfs
+mount -t nfs headnode-ip:/nfs /nfs
+EOF
+
+aws ec2 create-launch-template-version \
+  --launch-template-id $TEMPLATE_ID \
+  --source-version 1 \
+  --launch-template-data "{\"UserData\":\"$(base64 -w0 /tmp/user-data.sh)\"}"
+```
+
+**Note:** You'll need multiple templates if your compute nodes require different configurations (e.g., GPU vs CPU nodes).
+
+### 7. Create Configuration Files
 
 Create `config.json` and `partitions.json` in the same folder as the Python files.
 
 See the [Configuration Reference](configuration.md) for detailed schema and parameters.
 
-### 7. Generate Slurm Configuration
+### 8. Generate Slurm Configuration
 
 Run `generate_conf.py` to create Slurm configuration:
 
@@ -400,7 +650,7 @@ scontrol reconfigure
 # Or restart slurmctld
 ```
 
-### 8. Configure Cron Job
+### 9. Configure Cron Job
 
 Set up a cron job to run `change_state.py` every minute. This script manages nodes stuck in transient or undesired states.
 
@@ -442,7 +692,15 @@ You can manually test the resume and suspend programs:
    srun -p aws hostname
    ```
 
-3. Monitor instance launch in the AWS EC2 console
+3. Monitor instance launch:
+   ```bash
+   # Watch for new instances
+   watch 'aws ec2 describe-instances \
+     --filters "Name=tag:ManagedBy,Values=Slurm" \
+               "Name=instance-state-name,Values=pending,running" \
+     --query "Reservations[].Instances[].[InstanceId,State.Name,Tags[?Key==\`Name\`].Value|[0]]" \
+     --output table'
+   ```
 
 4. After job completion, the node will remain idle for `SuspendTime` seconds before being terminated
 
@@ -452,7 +710,13 @@ You can manually test the resume and suspend programs:
 
 - Check plugin logs: `tail -f /var/log/slurm/aws.log` (or your configured `LogFileName`)
 - Monitor Slurm: `sinfo`, `squeue`, `scontrol show nodes`
-- Watch AWS EC2 console for instance launches/terminations
+- Watch instances via CLI:
+  ```bash
+  aws ec2 describe-instances \
+    --filters "Name=tag:ManagedBy,Values=Slurm" \
+    --query "Reservations[].Instances[].[InstanceId,State.Name,LaunchTime]" \
+    --output table
+  ```
 
 ### Common Issues
 

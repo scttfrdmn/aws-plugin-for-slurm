@@ -193,15 +193,7 @@ The CloudFormation stack creates:
 
 ### 1. Create the Stack
 
-#### Via AWS Console
-
-1. Navigate to CloudFormation in AWS Console
-2. Click "Create stack" → "With new resources"
-3. Choose "Upload a template file"
-4. Upload `template.yaml`
-5. Click "Next"
-
-#### Via AWS CLI
+#### Via AWS CLI (Recommended)
 
 ```bash
 aws cloudformation create-stack \
@@ -343,9 +335,9 @@ watch 'sinfo -N'
 You should see the node transition through states:
 - `idle~` → `alloc#` → `alloc` → `idle` → `idle~`
 
-### 4. Check EC2 Console
+### 4. Verify Instance Launch
 
-Verify the instance appears in EC2 console with:
+Verify the instance launched successfully:
 - Name tag: `aws-node-0`
 - State: Running (while job is active)
 - After `SuspendTime` seconds: Terminated
