@@ -1,8 +1,10 @@
 ## AWS Plugin for Slurm
 
-> **Note from September 11, 2020**: We've redeveloped the Slurm plugin for AWS. The new version is available in the [plugin-v2](https://github.com/aws-samples/aws-plugin-for-slurm/tree/plugin-v2) branch. Major changes includes: support of EC2 Fleet capabilities such as Spot or instance type diversification, decoupling node names from instance host names or IP addresses, better error handling when a node fails to respond during its launch. You can use the following command to clone this branch locally.
+> **⚠️ DEPRECATION NOTICE**: This branch (main/master) contains the deprecated 2018 version. Active development has moved to **[plugin-v3](https://github.com/scttfrdmn/aws-plugin-for-slurm/tree/plugin-v3)**. See [DEPRECATION-NOTICE.md](DEPRECATION-NOTICE.md) for details.
 
-> `git clone -b plugin-v2 https://github.com/aws-samples/aws-plugin-for-slurm.git`
+> **Note from September 11, 2020**: We've redeveloped the Slurm plugin for AWS. The version 2 is available in the [plugin-v2](https://github.com/scttfrdmn/aws-plugin-for-slurm/tree/plugin-v2) branch (also deprecated). Version 3 is now available in [plugin-v3](https://github.com/scttfrdmn/aws-plugin-for-slurm/tree/plugin-v3) (active development).
+
+> Clone the latest version: `git clone -b plugin-v3 https://github.com/scttfrdmn/aws-plugin-for-slurm.git`
 
 A sample integration of AWS services with Slurm
 
