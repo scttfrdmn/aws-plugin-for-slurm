@@ -203,18 +203,54 @@ INFO - Sync launch: instance i-0abc1 ready (10.1.1.50) [1/4]
 INFO - Sync launch: instance i-0abc2 ready (10.1.1.51) [2/4]
 INFO - Sync launch: instance i-0abc3 ready (10.1.1.52) [3/4]
 INFO - Sync launch: instance i-0abc4 ready (10.1.1.53) [4/4]
-INFO - Sync launch: all 4 instances ready after 87.3s
+INFO - Sync launch: all 4 instances ready after 42.8s
 INFO - Sync launch: all 4 nodes configured and ready
 ```
 
 A short launch, cleaned up instead of left idle:
 
 ```
-ERROR - Sync launch failed: EC2 Fleet returned 27 of 32 requested instances.
+ERROR - Sync launch failed: EC2 Fleet returned 11 of 12 requested instances.
         A partial allocation cannot satisfy a tightly-coupled job.
-WARNING - Terminating 27 instance(s): i-0abc1, i-0abc2, ...
-WARNING - EC2 Fleet error codes: InsufficientInstanceCapacity
+WARNING - Terminating 11 instance(s): i-0abc1, i-0abc2, ...
+WARNING - EC2 Fleet error codes: InsufficientFreeAddressesInSubnet
 ```
+
+A node that dies while the plugin is waiting — detected immediately rather than at the timeout:
+
+```
+ERROR - Sync launch failed: Instance i-0abc2 entered state "shutting-down" while waiting for readiness
+WARNING - Terminating 4 instance(s): i-0abc1, i-0abc2, i-0abc3, i-0abc4
+```
+
+---
+
+## Measured behavior
+
+Measured on real EC2 (us-west-2, `c6g.large`, on-demand, cluster placement group, single
+subnet, `HealthChecks: ["slurmd"]`). "Time to all ready" is `CreateFleet` to the last node
+passing its readiness check:
+
+| Nodes | Time to all ready |
+|---|---|
+| 2 | 44.7s |
+| 4 | 42.8s |
+| 8 | 49.2s |
+| 16 | 44.9s |
+
+Launch time is dominated by instance boot, not allocation size — waiting for the whole
+allocation costs little over waiting for one node. Your numbers will be higher with a
+bootstrap-heavy AMI; measure your own before setting `TimeoutSeconds`.
+
+Failure paths, same environment:
+
+| Scenario | v3 | Pre-fix behavior |
+|---|---|---|
+| Fleet returns 11 of 12 (subnet out of IPs) | Detected and all 11 terminated in **3.9s** | Logged "all 11 instances ready", registered 11 nodes, left them running until `ResumeTimeout` killed the job |
+| One node terminated mid-wait | Failed fast in **8s**, all 4 terminated | Still polling at 3/4 after 187s; would have waited the full `TimeoutSeconds` |
+| ICMP blocked by security group, `HealthChecks: ["network"]` | Healthy allocation terminated at the timeout — the reason `network` is not a default | Same, but `network` *was* a default, so this hit every ICMP-restricted VPC |
+
+In the ICMP case both nodes were fully booted and accepting TCP; only ping was blocked.
 
 ---
 
