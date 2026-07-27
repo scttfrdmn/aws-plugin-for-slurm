@@ -95,6 +95,41 @@ srun -p cpu ./preprocessing
 - CUDA toolkit pre-installed or loaded via modules
 - `GresTypes=gpu` in config.json
 
+## Example 5: MPI / Tightly-Coupled Workloads
+
+**File**: [example-5-mpi-workloads.json](example-5-mpi-workloads.json)
+
+Two partitions demonstrating the v3.1 launch settings:
+
+- **mpi** partition: Up to 64 network-optimized nodes in a cluster placement group, single
+  subnet, on-demand, with all-or-nothing launch enabled
+- **cpu** partition: Up to 100 spot nodes across two AZs for general work (default partition)
+
+**Use case**: Parallel jobs where a partial allocation is useless. `EnableMPISupport` makes
+`resume.py` wait for the whole allocation and terminate it if any node is missing or
+unhealthy, rather than leaving idle nodes to be billed until `ResumeTimeout` expires.
+
+Note that v2 already runs MPI jobs correctly — Slurm holds a job in `CONFIGURING` until every
+allocated node registers. These settings reduce the cost and opacity of *failed* launches.
+See [MPI and Tightly-Coupled Workloads](../docs/mpi-support.md).
+
+**Example job submission**:
+```bash
+# 4 nodes, 64 ranks each
+srun -p mpi -N 4 -n 256 ./mpi_application
+
+# General work on the cheaper spot partition
+srun -p cpu ./preprocessing
+```
+
+**Requirements**:
+- A cluster placement group must exist:
+  `aws ec2 create-placement-group --group-name slurm-mpi-pg --strategy cluster`
+- Single subnet in `SubnetIds` — cluster placement groups cannot span AZs
+- Matching MPI library and version on the AMI across all nodes
+- `ResumeTimeout` in config.json must exceed `MPIOptions.TimeoutSeconds` by at least 120s
+  (the default 300 needs `ResumeTimeout` >= 420; the shipped template's 300 is too low)
+
 ## Example config.json Files
 
 The examples directory also includes sample `config.json` files:

@@ -12,7 +12,8 @@
                "MPIOptions": {
                   "WaitForAllNodes": true,
                   "TimeoutSeconds": 300,
-                  "HealthChecks": ["network", "slurmd"]
+                  "HealthChecks": ["slurmd"],
+                  "RequirePlacementGroup": true
                },
                "SlurmSpecifications": {
                   "CPUs": "96",

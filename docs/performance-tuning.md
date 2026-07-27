@@ -45,6 +45,10 @@ These parameters control how many instances can be launched/terminated per minut
 **Too low:**
 - Slow cluster scale-up
 - Jobs wait longer for resources
+- **Breaks all-or-nothing launch**: Slurm calls `ResumeProgram` once per batch of at most
+  `ResumeRate` nodes. Each invocation only sees its own subset, so a 40-node job under
+  `ResumeRate: 20` becomes two independent 20-node waits and the all-or-nothing guarantee
+  applies per half, not per job. Keep `ResumeRate` at or above your largest MPI allocation.
 
 **Monitor and adjust:**
 
@@ -88,6 +92,19 @@ Time (in seconds) before Slurm marks unresponsive nodes as DOWN.
 ```
 ResumeTimeout = (P95 launch time) + (P95 bootstrap time) + 60 seconds buffer
 ```
+
+**With all-or-nothing launch (v3.1)**: if any node group sets `EnableMPISupport`, `resume.py`
+blocks for up to `MPIOptions.TimeoutSeconds` while waiting for the full allocation. Slurm is
+counting down `ResumeTimeout` at the same time, so `ResumeTimeout` must be comfortably larger:
+
+```
+ResumeTimeout >= MPIOptions.TimeoutSeconds + 120
+```
+
+Otherwise Slurm marks the nodes `DOWN` while the plugin is still waiting for them. The
+default `TimeoutSeconds` of 300 needs `ResumeTimeout` of at least 420; 600 is a safe choice.
+Note the shipped CloudFormation template sets `ResumeTimeout: 300`, which is not compatible
+with the default. See [MPI and Tightly-Coupled Workloads](mpi-support.md).
 
 Measure your actual launch times:
 

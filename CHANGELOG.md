@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — tightly-coupled workload support (v3.1)
+
+Three opt-in `partitions.json` settings, all off by default. Node groups that do not set them
+behave exactly as on v2.
+
+- `EnableMPISupport` — all-or-nothing launch. `resume.py` waits for the full allocation and
+  terminates it if any node is missing or unhealthy, instead of registering a partial
+  allocation that Slurm will kill at `ResumeTimeout`.
+- `PlacementGroupName` — placement group per node group rather than per launch template.
+- `MPIOptions` — `WaitForAllNodes`, `TimeoutSeconds`, `HealthChecks`, `RequirePlacementGroup`.
+- `health_check.py` — standalone readiness checker for a node IP.
+- `docs/mpi-support.md` — guide, explicit that v2 already runs MPI correctly and that these
+  settings address the cost and diagnosability of *failed* launches.
+- `.gitignore` — Python bytecode, local `config.json`/`partitions.json`, plugin log.
+
+### Fixed
+
+- All-or-nothing launch no longer accepts a partial EC2 Fleet result. Previously, requesting
+  16 nodes and receiving 12 logged "all 12 nodes configured and ready" and left the job to
+  die at `ResumeTimeout` — the exact failure the feature exists to prevent.
+- Readiness waiting now fails fast when an instance enters a terminal state, instead of
+  waiting out the full timeout for a node that will never appear.
+- `MPIOptions.WaitForAllNodes` and `MPIOptions.RequirePlacementGroup` are now honored. Both
+  were validated but never read.
+- `network` (ICMP) removed from the default health checks. Security groups commonly block
+  ICMP, and a blocked ping caused every node to fail and a healthy allocation to be
+  terminated. Opt in explicitly.
+- `nfs` health check removed. It was accepted by validation and always returned success,
+  giving false confidence.
+- Sockets in port checks are now closed on the success path.
+- Warn when a placement group is configured with multiple subnets, which a cluster placement
+  group cannot span.
+
+### Removed
+
+- `docs/IMPLEMENTATION_PLAN_MPI.md` — internal planning document. Its problem statement
+  claimed MPI jobs start before all nodes are ready, which contradicts Slurm's
+  `CONFIGURING`-state behavior and this project's own bursting and troubleshooting guides.
+
 ### Added
 - Comprehensive documentation restructure with separate guides for configuration, installation, troubleshooting, and advanced topics
 - GPU/GRES support documentation

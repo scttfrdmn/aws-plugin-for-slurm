@@ -13,6 +13,19 @@ import common
 logger, config, partitions = common.get_common('resume')
 
 
+# Defaults for synchronous launch (see docs/mpi-support.md)
+DEFAULT_LAUNCH_TIMEOUT = 300
+
+# 'network' (ICMP) is deliberately NOT a default: many security groups do not
+# allow ICMP, and a blocked ping would fail every node and terminate an
+# otherwise healthy allocation. Opt in explicitly if ICMP is permitted.
+DEFAULT_HEALTH_CHECKS = ['slurmd']
+
+VALID_HEALTH_CHECKS = ('network', 'slurmd')
+
+SLURMD_PORT = 6818
+
+
 # Retry in case the request failed because of eventual consistency
 def retry(func, *args, **kwargs):
     nb_retry = 1
@@ -29,10 +42,10 @@ def retry(func, *args, **kwargs):
                 raise e
 
 
-# MPI Support: Wait for all instances to be ready
-def wait_for_instances_ready(client, instance_ids, node_names_map, nodegroup, timeout=300):
+# Synchronous launch: wait for every instance in the allocation to be ready
+def wait_for_instances_ready(client, instance_ids, node_names_map, nodegroup, timeout=DEFAULT_LAUNCH_TIMEOUT):
     """
-    Wait for all instances to be running and healthy (MPI support)
+    Wait for all instances to be running and healthy
 
     Args:
         client: boto3 EC2 client
@@ -50,10 +63,10 @@ def wait_for_instances_ready(client, instance_ids, node_names_map, nodegroup, ti
     start_time = time.time()
     ready_instances = {}
     mpi_options = nodegroup.get('MPIOptions', {})
-    health_checks = mpi_options.get('HealthChecks', ['network', 'slurmd'])
+    health_checks = mpi_options.get('HealthChecks', DEFAULT_HEALTH_CHECKS)
 
-    logger.info('MPI: Waiting for %d instances to be ready (timeout=%ds, checks=%s)',
-                len(instance_ids), timeout, ','.join(health_checks))
+    logger.info('Sync launch: waiting for %d instances to be ready (timeout=%ds, checks=%s)',
+                len(instance_ids), timeout, ','.join(health_checks) or 'none')
 
     last_progress_log = 0
 
@@ -87,20 +100,27 @@ def wait_for_instances_ready(client, instance_ids, node_names_map, nodegroup, ti
                             'hostname': hostname,
                             'node_name': node_names_map[instance_id]
                         }
-                        logger.info('MPI: Instance %s ready (%s) [%d/%d]',
+                        logger.info('Sync launch: instance %s ready (%s) [%d/%d]',
                                     instance_id, ip_address,
                                     len(ready_instances), len(instance_ids))
+                elif state in ('shutting-down', 'terminated', 'stopping', 'stopped'):
+                    # The instance died while we were waiting. It will never become
+                    # ready, so fail now instead of burning the whole timeout.
+                    raise RuntimeError(
+                        'Instance %s entered state "%s" while waiting for readiness'
+                        %(instance_id, state)
+                    )
 
         # Check if all ready
         if len(ready_instances) == len(instance_ids):
             elapsed = time.time() - start_time
-            logger.info('MPI: All %d instances ready after %.1fs', len(instance_ids), elapsed)
+            logger.info('Sync launch: all %d instances ready after %.1fs', len(instance_ids), elapsed)
             return ready_instances
 
         # Log progress every 30 seconds
         elapsed = int(time.time() - start_time)
         if elapsed - last_progress_log >= 30:
-            logger.info('MPI: Progress: %d/%d instances ready (%.1fs elapsed)',
+            logger.info('Sync launch: progress %d/%d instances ready (%.1fs elapsed)',
                         len(ready_instances), len(instance_ids), elapsed)
             last_progress_log = elapsed
 
@@ -119,7 +139,7 @@ def perform_health_checks(ip_address, checks):
 
     Args:
         ip_address: Node IP to check
-        checks: List of check types ['network', 'slurmd', 'nfs']
+        checks: List of check types ['network', 'slurmd']
 
     Returns:
         bool: True if all checks pass
@@ -130,13 +150,9 @@ def perform_health_checks(ip_address, checks):
             return False
 
     if 'slurmd' in checks:
-        if not check_port(ip_address, 6818, timeout=3):
+        if not check_port(ip_address, SLURMD_PORT, timeout=3):
             logger.debug('Health check failed for %s: slurmd port not responding', ip_address)
             return False
-
-    # NFS check is expensive (requires SSH), not implemented yet
-    if 'nfs' in checks:
-        logger.debug('NFS health check not yet implemented, skipping')
 
     return True
 
@@ -161,11 +177,40 @@ def check_port(ip_address, port, timeout=3):
     sock.settimeout(timeout)
     try:
         sock.connect((ip_address, port))
-        sock.close()
         return True
     except Exception as e:
         logger.debug('Port check failed for %s:%d: %s', ip_address, port, e)
         return False
+    finally:
+        sock.close()
+
+
+def terminate_instances(client, instance_ids):
+    """Terminate instances, logging but not raising on failure"""
+    if not instance_ids:
+        return
+    logger.warning('Terminating %d instance(s): %s', len(instance_ids), ', '.join(instance_ids))
+    try:
+        client.terminate_instances(InstanceIds=instance_ids)
+    except Exception as e:
+        logger.error('Failed to terminate instances - %s. These instances may still be '
+                     'running and incurring charges: %s', e, ', '.join(instance_ids))
+
+
+def log_fleet_errors(response_fleet):
+    """Log any errors reported by EC2 CreateFleet"""
+    error_codes = []
+    for error in response_fleet.get('Errors', []):
+        override = error['LaunchTemplateAndOverrides']['Overrides']
+        logger.debug('EC2 Fleet error - %s - Instance type: %s Subnet: %s Lifecycle: %s' %(
+            error['ErrorMessage'], override.get('InstanceType'), override.get('SubnetId'),
+            error.get('Lifecycle')
+        ))
+        if not error['ErrorCode'] in error_codes:
+            error_codes.append(error['ErrorCode'])
+
+    if len(error_codes) > 0:
+        logger.warning('EC2 Fleet error codes: %s' %', '.join(error_codes))
 
 
 # Retrieve the list of hosts to resume
@@ -228,7 +273,8 @@ for partition_name, nodegroups in nodes_to_resume.items():
                 override_copy['SubnetId'] = subnet
                 override_copy['WeightedCapacity'] = 1
 
-                # MPI Support: Add placement group if specified
+                # Add placement group if specified. This overrides any Placement
+                # set in the launch template itself.
                 if 'PlacementGroupName' in nodegroup:
                     override_copy['Placement'] = {
                         'GroupName': nodegroup['PlacementGroupName']
@@ -236,6 +282,26 @@ for partition_name, nodegroups in nodes_to_resume.items():
                     logger.debug('Using placement group: %s', nodegroup['PlacementGroupName'])
 
                 request_fleet['LaunchTemplateConfigs'][0]['Overrides'].append(override_copy)
+
+        # A cluster placement group cannot span availability zones. If the node group
+        # lists several subnets they are likely in different AZs, and the fleet will
+        # fail or land nodes outside the group.
+        if 'PlacementGroupName' in nodegroup and len(nodegroup['SubnetIds']) > 1:
+            logger.warning(
+                'Node group %s uses placement group %s with %d subnets. A cluster '
+                'placement group cannot span availability zones - use a single subnet.',
+                nodegroup_name, nodegroup['PlacementGroupName'], len(nodegroup['SubnetIds'])
+            )
+
+        # Fail fast if a placement group is required but not configured
+        mpi_options = nodegroup.get('MPIOptions', {})
+        if mpi_options.get('RequirePlacementGroup', False) and 'PlacementGroupName' not in nodegroup:
+            logger.error(
+                'Node group %s sets MPIOptions.RequirePlacementGroup but no '
+                'PlacementGroupName is configured - skipping launch',
+                nodegroup_name
+            )
+            continue
 
         # Create an EC2 fleet
         try:
@@ -246,13 +312,15 @@ for partition_name, nodegroups in nodes_to_resume.items():
             logger.error('Failed to launch nodes for partition=%s and nodegroup=%s - %s' %(partition_name, nodegroup_name, e))
             continue
 
-        # Check if MPI support is enabled
+        # Synchronous launch is opt-in per node group, and can be disabled without
+        # removing the rest of the MPI settings via MPIOptions.WaitForAllNodes.
         enable_mpi = nodegroup.get('EnableMPISupport', False)
-        mpi_options = nodegroup.get('MPIOptions', {})
+        wait_for_all = mpi_options.get('WaitForAllNodes', True)
+        use_sync_launch = enable_mpi and wait_for_all and nb_nodes_to_resume > 1
 
-        if enable_mpi and nb_nodes_to_resume > 1:
-            # MPI Mode: Synchronous launch - wait for all nodes to be ready
-            logger.info('MPI mode enabled: launching %d nodes synchronously', nb_nodes_to_resume)
+        if use_sync_launch:
+            logger.info('Sync launch enabled: launching %d nodes as an all-or-nothing group',
+                        nb_nodes_to_resume)
 
             # Collect all instance IDs
             all_instance_ids = []
@@ -267,8 +335,21 @@ for partition_name, nodegroups in nodes_to_resume.items():
                     node_names_map[instance_id] = node_name
                     node_id_index += 1
 
+            # EC2 Fleet may return fewer instances than requested. A partial allocation
+            # is useless for a tightly-coupled job: Slurm would wait out ResumeTimeout
+            # on the missing nodes and then kill the job. Give the capacity back now.
+            if len(all_instance_ids) < nb_nodes_to_resume:
+                logger.error(
+                    'Sync launch failed: EC2 Fleet returned %d of %d requested instances. '
+                    'A partial allocation cannot satisfy a tightly-coupled job.',
+                    len(all_instance_ids), nb_nodes_to_resume
+                )
+                terminate_instances(client, all_instance_ids)
+                log_fleet_errors(response_fleet)
+                continue
+
             # Wait for all instances to be ready
-            timeout = mpi_options.get('TimeoutSeconds', 300)
+            timeout = mpi_options.get('TimeoutSeconds', DEFAULT_LAUNCH_TIMEOUT)
             try:
                 ready_instances = wait_for_instances_ready(
                     client,
@@ -277,13 +358,10 @@ for partition_name, nodegroups in nodes_to_resume.items():
                     nodegroup,
                     timeout=timeout
                 )
-            except TimeoutError as e:
-                logger.error('MPI node launch failed: %s', e)
-                logger.warning('Terminating %d instances due to timeout', len(all_instance_ids))
-                try:
-                    client.terminate_instances(InstanceIds=all_instance_ids)
-                except Exception as term_error:
-                    logger.error('Failed to terminate instances: %s', term_error)
+            except (TimeoutError, RuntimeError) as e:
+                logger.error('Sync launch failed: %s', e)
+                terminate_instances(client, all_instance_ids)
+                log_fleet_errors(response_fleet)
                 continue
 
             # Tag and update Slurm for all ready instances
@@ -292,7 +370,7 @@ for partition_name, nodegroups in nodes_to_resume.items():
                 hostname = instance_info['hostname']
                 node_name = instance_info['node_name']
 
-                logger.info('MPI: Configuring node %s %s %s', node_name, instance_id, ip_address)
+                logger.info('Configuring node %s %s %s', node_name, instance_id, ip_address)
 
                 # Tag instance
                 tags = [
@@ -332,12 +410,15 @@ for partition_name, nodegroups in nodes_to_resume.items():
                 except Exception as e:
                     logger.error('Failed to update node information in Slurm %s - %s', node_name, e)
 
-            logger.info('MPI: All %d nodes configured and ready', len(ready_instances))
+            logger.info('Sync launch: all %d nodes configured and ready', len(ready_instances))
 
         else:
-            # Standard Mode: Asynchronous launch (existing behavior)
-            if enable_mpi and nb_nodes_to_resume == 1:
-                logger.debug('MPI mode enabled but only 1 node requested, using standard launch')
+            # Standard Mode: Asynchronous launch (v2 behavior)
+            if enable_mpi and not wait_for_all:
+                logger.debug('Sync launch disabled via MPIOptions.WaitForAllNodes, '
+                             'using standard launch')
+            elif enable_mpi and nb_nodes_to_resume == 1:
+                logger.debug('Sync launch not needed for a single node, using standard launch')
 
             # This variable will be used as an incremental index of node_ids
             node_id_index = 0
@@ -413,15 +494,4 @@ for partition_name, nodegroups in nodes_to_resume.items():
             logger.warning('Failed to launch %s nodes' %nb_failed_nodes)
 
         # Log EC2 fleet errors
-        error_codes = []
-        for error in response_fleet['Errors']:
-            override = error['LaunchTemplateAndOverrides']['Overrides']
-            logger.debug('EC2 Fleet error - %s - Instance type: %s Subnet: %s Lifecycle: %s' %(
-                error['ErrorMessage'], override['InstanceType'], override['SubnetId'],
-                error['Lifecycle']
-            ))
-            if not error['ErrorCode'] in error_codes:
-                error_codes.append(error['ErrorCode'])
-
-        if len(error_codes) > 0:
-            logger.warning('EC2 Fleet error codes: %s' %', '.join(error_codes))
+        log_fleet_errors(response_fleet)

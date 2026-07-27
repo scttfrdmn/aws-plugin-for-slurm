@@ -111,7 +111,7 @@ def validate_partitions(data):
             assert 'SubnetIds' in nodegroup, 'Missing "SubnetIds" in root["Partitions"][%s]["NodeGroups"][%s]' %(i_partition, i_nodegroup)
             assert isinstance(nodegroup['SubnetIds'], list), 'root["Partitions"][%s]["NodeGroups"][%s]["SubnetIds"] is not a dict' %(i_partition, i_nodegroup)
 
-            # Validate MPI-specific fields (optional)
+            # Validate synchronous launch fields (optional, see docs/mpi-support.md)
             if 'EnableMPISupport' in nodegroup:
                 assert isinstance(nodegroup['EnableMPISupport'], bool), \
                     'root["Partitions"][%s]["NodeGroups"][%s]["EnableMPISupport"] must be boolean' %(i_partition, i_nodegroup)
@@ -139,7 +139,7 @@ def validate_partitions(data):
                 if 'HealthChecks' in mpi_options:
                     assert isinstance(mpi_options['HealthChecks'], list), \
                         'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["HealthChecks"] must be array' %(i_partition, i_nodegroup)
-                    valid_checks = ['network', 'slurmd', 'nfs']
+                    valid_checks = ['network', 'slurmd']
                     for check in mpi_options['HealthChecks']:
                         assert check in valid_checks, \
                             'root["Partitions"][%s]["NodeGroups"][%s]["MPIOptions"]["HealthChecks"] contains invalid check: %s (valid: %s)' \

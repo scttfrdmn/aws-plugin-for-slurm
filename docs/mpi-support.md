@@ -1,38 +1,55 @@
-# MPI Support
+# MPI and Tightly-Coupled Workloads
 
 **Added in:** v3.1.0
-**Status:** Stable
 
-## Overview
+## Start here: v2 already runs MPI jobs
 
-The AWS Plugin for Slurm now supports MPI (Message Passing Interface) workloads through **synchronous node launching**. This ensures all nodes in an MPI allocation are ready simultaneously before the job starts, preventing hangs and failures.
+If you are on plugin v2 and want to run MPI, **you do not need this page to get a working
+job.** v2 runs MPI correctly, and it always has.
 
-### What's New
+The reason is Slurm, not the plugin. When a job is allocated cloud nodes that are powered
+down, slurmctld puts the job in `CONFIGURING` (`alloc#`) and **will not start the job step
+until every node in the allocation has registered its slurmd.** That is what `ResumeTimeout`
+is the deadline for. Your batch script does not begin running until the allocation is
+complete, so `mpirun` never sees a half-built node list.
 
-- ✅ **Synchronous launch mode** - Wait for all nodes before job starts
-- ✅ **Placement group support** - Low-latency networking (<10μs)
-- ✅ **Health checks** - Verify nodes are operational before adding to Slurm
-- ✅ **Configurable timeouts** - Graceful failure handling
-- ✅ **Backward compatible** - Non-MPI workloads unchanged
+Placement groups and EFA work on v2 too. Both are launch-template settings, and v2 passes
+your launch template to EC2 Fleet unchanged — put `Placement.GroupName` in the template and
+v2 will honor it. See [Advanced Usage](advanced-usage.md#placement-groups).
 
-### Key Benefits
+So what does v3 add? Three things, none of which is "makes MPI work":
 
-| Feature | Benefit |
-|---------|---------|
-| **Synchronous Launch** | All MPI ranks start together - no more hangs |
-| **Placement Groups** | <10μs latency vs 50-200μs without |
-| **Health Checks** | Catch boot failures before job attempts to run |
-| **Fast Failure** | Timeout and cleanup failed launches automatically |
+| v3 addition | What it changes vs v2 |
+|---|---|
+| **All-or-nothing launch** | On a short or failed launch, v3 terminates the partial allocation in seconds instead of leaving it to idle until `ResumeTimeout` expires. Saves money and surfaces the error. |
+| **Placement group in `partitions.json`** | Set the placement group per node group instead of per launch template. One template can now serve several node groups. |
+| **Readiness checks and logging** | The plugin log names the node and the failed check, instead of leaving you to infer a boot failure from an opaque `DOWN` transition. |
+
+These are cost, ergonomics, and diagnosability improvements. If v2 MPI works for you and you
+are not hitting failed launches at scale, there is little reason to change.
+
+---
+
+## When v3's additions are worth it
+
+Adopt the settings on this page if you recognize these:
+
+- **Large allocations that sometimes come up short.** Requesting 32 nodes and getting 27 is
+  common in a constrained placement group. On v2 the 27 boot, sit idle, and the job dies
+  when `ResumeTimeout` expires on the missing 5 — you pay for all 27 the whole time. v3
+  detects the shortfall immediately and terminates.
+- **Expensive instances.** At c7gn/c6in on-demand rates, minutes of idle nodes per failed
+  launch adds up.
+- **Opaque boot failures.** A node that boots but never starts slurmd looks identical to a
+  slow node until `ResumeTimeout`. The readiness check names it.
 
 ---
 
 ## Prerequisites
 
-Before using MPI support, ensure you have:
+### Placement group
 
-### 1. Placement Group (Recommended)
-
-For optimal MPI performance:
+A cluster placement group is what gets you low inter-node latency. Create one:
 
 ```bash
 aws ec2 create-placement-group \
@@ -41,756 +58,294 @@ aws ec2 create-placement-group \
   --region us-east-1
 ```
 
-**Note:** Placement groups are AZ-specific. All nodes must launch in the same availability zone.
-
-### 2. Single-AZ Subnet Configuration
-
-In `partitions.json`, use only ONE subnet for MPI node groups:
+A cluster placement group **cannot span availability zones**, so an MPI node group must use
+a single subnet:
 
 ```json
-"SubnetIds": [
-  "subnet-11111111"  // Must be single subnet for placement group
-]
+"SubnetIds": ["subnet-11111111"]
 ```
 
-### 3. MPI-Enabled AMI
+The plugin logs a warning if you configure a placement group with more than one subnet.
 
-Your AMI must have:
-- MPI library installed (OpenMPI, Intel MPI, MPICH, etc.)
-- Same MPI version across all nodes
-- slurmd configured to start on boot
+### Matching MPI on the AMI
 
-**Tip:** Use the [Packer template](../examples/packer/) to build consistent AMIs.
+Every node needs the same MPI library at the same version, and slurmd must start on boot.
+Use the [Packer template](../examples/packer/) to keep AMIs consistent.
 
-### 4. On-Demand Instances (Recommended)
+### On-demand, not spot
 
-Spot interruptions mid-MPI job are catastrophic:
+A spot interruption anywhere in the allocation kills the whole job, and MPI jobs rarely
+checkpoint often enough to make that cheap:
 
 ```json
 "PurchasingOption": "on-demand"
 ```
 
-**Reason:** Spot instance can be interrupted at any time, killing your entire MPI job.
-
 ---
 
 ## Configuration
 
-### Basic MPI Configuration
-
-Minimal configuration in `partitions.json`:
+Add to a node group in `partitions.json`:
 
 ```json
 {
-  "NodeGroupName": "mpi",
+  "NodeGroupName": "compute",
   "MaxNodes": 32,
-  "Region": "us-east-1",
-  "EnableMPISupport": true,  // Enable synchronous launch
-  "SlurmSpecifications": {
-    "CPUs": "96",
-    "RealMemory": "190000"
-  },
-  "PurchasingOption": "on-demand",
-  "LaunchTemplateSpecification": {
-    "LaunchTemplateName": "mpi-template",
-    "Version": "$Latest"
-  },
-  "LaunchTemplateOverrides": [
-    {"InstanceType": "c7gn.16xlarge"}
-  ],
-  "SubnetIds": ["subnet-xxxxx"]
-}
-```
-
-### Full MPI Configuration
-
-Complete configuration with all options:
-
-```json
-{
-  "NodeGroupName": "mpi",
-  "MaxNodes": 64,
   "Region": "us-east-1",
 
   "EnableMPISupport": true,
   "PlacementGroupName": "slurm-mpi-pg",
 
   "MPIOptions": {
-    "WaitForAllNodes": true,
     "TimeoutSeconds": 300,
-    "HealthChecks": ["network", "slurmd"]
+    "HealthChecks": ["slurmd"],
+    "RequirePlacementGroup": true
   },
 
-  "SlurmSpecifications": {
-    "CPUs": "96",
-    "RealMemory": "190000",
-    "Feature": "lowlatency",
-    "Weight": "1"
-  },
-
+  "SlurmSpecifications": {"CPUs": "64", "RealMemory": "120000"},
   "PurchasingOption": "on-demand",
-  "OnDemandOptions": {
-    "AllocationStrategy": "lowest-price"
-  },
-
-  "LaunchTemplateSpecification": {
-    "LaunchTemplateName": "mpi-compute-template",
-    "Version": "$Latest"
-  },
-
-  "LaunchTemplateOverrides": [
-    {"InstanceType": "c7gn.16xlarge"},
-    {"InstanceType": "c6in.32xlarge"}
-  ],
-
-  "SubnetIds": [
-    "subnet-11111111"
-  ]
+  "LaunchTemplateSpecification": {"LaunchTemplateName": "mpi-template", "Version": "$Latest"},
+  "LaunchTemplateOverrides": [{"InstanceType": "c7gn.16xlarge"}],
+  "SubnetIds": ["subnet-11111111"]
 }
 ```
 
-### Configuration Reference
+### Reference
 
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `EnableMPISupport` | boolean | **Yes** | false | Enable synchronous launch mode |
-| `PlacementGroupName` | string | No | null | AWS placement group for low latency |
-| `MPIOptions` | object | No | {} | MPI-specific settings |
-| `MPIOptions.WaitForAllNodes` | boolean | No | true | Wait for all nodes before marking ready |
-| `MPIOptions.TimeoutSeconds` | integer | No | 300 | Max seconds to wait for nodes (1-600) |
-| `MPIOptions.HealthChecks` | array | No | ["network", "slurmd"] | Health checks to perform |
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `EnableMPISupport` | boolean | `false` | Enable all-or-nothing launch for this node group |
+| `PlacementGroupName` | string | none | Placement group for the fleet. Overrides `Placement` in the launch template |
+| `MPIOptions.WaitForAllNodes` | boolean | `true` | Set `false` to keep the other settings but launch asynchronously like v2 |
+| `MPIOptions.TimeoutSeconds` | integer | `300` | How long to wait for the full allocation before terminating it |
+| `MPIOptions.HealthChecks` | array | `["slurmd"]` | Readiness checks. `[]` disables them |
+| `MPIOptions.RequirePlacementGroup` | boolean | `false` | Refuse to launch if `PlacementGroupName` is unset |
 
-**Health Check Types:**
-- `network` - Ping node to verify connectivity
-- `slurmd` - Check if slurmd port (6818) is responding
-- `nfs` - Verify NFS mount (not yet implemented)
+**Readiness checks:**
+
+- `slurmd` — TCP connect to port 6818. This is the default.
+- `network` — ICMP ping. **Opt-in, and off by default on purpose:** if your security group
+  does not allow ICMP, every node fails this check, and at the timeout the plugin terminates
+  a perfectly healthy allocation. Only enable it if ICMP is permitted from the headnode.
+
+Setting `EnableMPISupport` on a node group has no effect on other node groups. Untouched
+node groups keep exact v2 behavior.
+
+### `TimeoutSeconds` must be less than `ResumeTimeout`
+
+This is the one setting that will bite you. `resume.py` now **blocks** for up to
+`TimeoutSeconds` while waiting for the allocation. Slurm is independently counting down
+`ResumeTimeout` (in `config.json`) the whole time. If `TimeoutSeconds` >= `ResumeTimeout`,
+Slurm gives up and marks your nodes `DOWN` while the plugin is still waiting — you get the
+worst of both designs.
+
+Leave real headroom:
+
+```
+MPIOptions.TimeoutSeconds  <=  ResumeTimeout - 120
+```
+
+The shipped CloudFormation template sets `ResumeTimeout: 300`, which is **not** compatible
+with the default `TimeoutSeconds: 300`. Raise `ResumeTimeout` to 600 if you enable
+synchronous launch. See [Performance Tuning](performance-tuning.md#resumetimeout).
+
+### `ResumeRate` must not split the allocation
+
+Slurm launches at most `ResumeRate` nodes per minute, calling `ResumeProgram` once per
+batch. Each invocation only knows about its own subset, so a 40-node job under
+`ResumeRate: 20` becomes two independent 20-node waits — the all-or-nothing guarantee
+applies to each half, not the job. Keep `ResumeRate` at or above your largest MPI
+allocation.
 
 ---
 
-## Slurm Configuration
-
-### 1. Configure Partition
-
-In `slurm.conf`, create an MPI partition with `OverSubscribe=NO`:
+## Slurm configuration
 
 ```bash
-# MPI partition - no oversubscription
-PartitionName=mpi Nodes=mpi-compute-[0-63] Default=NO OverSubscribe=NO State=UP
+PartitionName=mpi Nodes=mpi-compute-[0-31] Default=NO OverSubscribe=NO State=UP
+NodeName=mpi-compute-[0-31] State=CLOUD CPUs=64 Feature=lowlatency
 ```
 
-**Important:** `OverSubscribe=NO` prevents multiple jobs from sharing nodes, which breaks MPI.
-
-### 2. Configure Features (Optional)
-
-Tag nodes with features for job targeting:
-
-```bash
-# In SlurmSpecifications in partitions.json
-"Feature": "lowlatency,mpi"
-```
-
-Then in `slurm.conf`:
-
-```bash
-NodeName=mpi-compute-[0-63] State=CLOUD CPUs=96 Feature=lowlatency,mpi
-```
+`OverSubscribe=NO` keeps other jobs off nodes in an MPI allocation.
 
 ---
 
 ## Usage
 
-### Submit MPI Job with srun
+Submitting a job is unchanged. Your MPI application needs no modification.
 
 ```bash
-# Simple hostname test
-srun -p mpi -N 4 hostname
-
-# MPI job with 4 nodes, 16 processes per node (64 total)
-srun -p mpi -N 4 -n 64 ./mpi_application
-
-# Request specific features
-srun -p mpi -C lowlatency -N 8 -n 256 ./mpi_application
+srun -p mpi -N 4 -n 256 ./mpi_application
 ```
-
-### Submit MPI Job with sbatch
-
-Create `mpi_job.sh`:
 
 ```bash
 #!/bin/bash
 #SBATCH --partition=mpi
-#SBATCH --nodes=4
-#SBATCH --ntasks=64
-#SBATCH --time=01:00:00
-#SBATCH --job-name=mpi_test
+#SBATCH --nodes=8
+#SBATCH --ntasks-per-node=64
+#SBATCH --time=02:00:00
 
-# Load MPI module if using modules
-# module load openmpi
-
-# Run MPI application
-srun ./mpi_application
+srun ./cfd_solver input.dat
 ```
 
-Submit:
+### What the log shows
 
-```bash
-sbatch mpi_job.sh
 ```
-
-### Monitor Launch Progress
-
-Watch plugin logs during node launch:
-
-```bash
 tail -f /var/log/slurm/aws_plugin.log
 ```
 
-Expected output:
+A successful launch:
 
 ```
-INFO - MPI mode enabled: launching 4 nodes synchronously
-INFO - MPI: Waiting for 4 instances to be ready (timeout=300s, checks=network,slurmd)
-INFO - MPI: Instance i-xxxxx1 ready (10.1.1.50) [1/4]
-INFO - MPI: Instance i-xxxxx2 ready (10.1.1.51) [2/4]
-INFO - MPI: Instance i-xxxxx3 ready (10.1.1.52) [3/4]
-INFO - MPI: Instance i-xxxxx4 ready (10.1.1.53) [4/4]
-INFO - MPI: All 4 instances ready after 87.3s
-INFO - MPI: All 4 nodes configured and ready
+INFO - Sync launch enabled: launching 4 nodes as an all-or-nothing group
+INFO - Sync launch: waiting for 4 instances to be ready (timeout=300s, checks=slurmd)
+INFO - Sync launch: instance i-0abc1 ready (10.1.1.50) [1/4]
+INFO - Sync launch: instance i-0abc2 ready (10.1.1.51) [2/4]
+INFO - Sync launch: instance i-0abc3 ready (10.1.1.52) [3/4]
+INFO - Sync launch: instance i-0abc4 ready (10.1.1.53) [4/4]
+INFO - Sync launch: all 4 instances ready after 87.3s
+INFO - Sync launch: all 4 nodes configured and ready
+```
+
+A short launch, cleaned up instead of left idle:
+
+```
+ERROR - Sync launch failed: EC2 Fleet returned 27 of 32 requested instances.
+        A partial allocation cannot satisfy a tightly-coupled job.
+WARNING - Terminating 27 instance(s): i-0abc1, i-0abc2, ...
+WARNING - EC2 Fleet error codes: InsufficientInstanceCapacity
 ```
 
 ---
 
 ## Verification
 
-### Check Placement Group Assignment
-
-After launching nodes, verify they're in the placement group:
+Confirm the placement group actually took effect:
 
 ```bash
-# Get instance IDs
-squeue -o "%N %i" | grep mpi
-
-# Check placement
 aws ec2 describe-instances \
-  --instance-ids i-xxxxx \
-  --query 'Reservations[0].Instances[0].Placement' \
-  --output json
+  --filters "Name=tag:ManagedBy,Values=Slurm" \
+  --query 'Reservations[].Instances[].[InstanceId,Placement.GroupName,Placement.AvailabilityZone]' \
+  --output table
 ```
 
-Expected output:
-
-```json
-{
-    "AvailabilityZone": "us-east-1a",
-    "GroupName": "slurm-mpi-pg",
-    "Tenancy": "default"
-}
-```
-
-### Test MPI Communication
-
-Simple MPI test program:
-
-```c
-// test_mpi.c
-#include <mpi.h>
-#include <stdio.h>
-
-int main(int argc, char** argv) {
-    MPI_Init(&argc, &argv);
-
-    int world_rank, world_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &world_rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &world_size);
-
-    printf("Hello from rank %d of %d\n", world_rank, world_size);
-
-    MPI_Finalize();
-    return 0;
-}
-```
-
-Compile and run:
+Measure latency with OSU Micro-Benchmarks. In a cluster placement group expect single-digit
+microseconds; without one, tens to hundreds:
 
 ```bash
-mpicc -o test_mpi test_mpi.c
-srun -p mpi -N 2 -n 8 ./test_mpi
-```
-
-Expected output:
-
-```
-Hello from rank 0 of 8
-Hello from rank 1 of 8
-Hello from rank 2 of 8
-...
-Hello from rank 7 of 8
-```
-
-### Measure MPI Latency
-
-Use OSU Micro-Benchmarks:
-
-```bash
-# Install OSU Micro-Benchmarks (on AMI)
-wget http://mvapich.cse.ohio-state.edu/download/mvapich/osu-micro-benchmarks-5.9.tar.gz
-tar xzf osu-micro-benchmarks-5.9.tar.gz
-cd osu-micro-benchmarks-5.9
-./configure CC=mpicc CXX=mpicxx
-make && make install
-
-# Run latency test
 srun -p mpi -N 2 -n 2 /usr/local/libexec/osu-micro-benchmarks/mpi/pt2pt/osu_latency
 ```
 
-Expected results **with placement group**:
+Check a specific node by hand:
 
+```bash
+python3 health_check.py 10.1.1.50 --checks slurmd
 ```
-# OSU MPI Latency Test
-# Size          Latency (us)
-0                       2.45
-1                       2.48
-2                       2.51
-4                       2.55
-8                       2.63
-...
-```
-
-Expected results **without placement group**: 50-200μs (20-80x worse!)
 
 ---
 
 ## Troubleshooting
 
-### Nodes Stuck in `alloc#` State
+### Allocation terminated: "returned N of M requested instances"
 
-**Symptom:** Nodes never transition to `alloc`, job hangs
+Not enough capacity for the full allocation. The plugin gave the partial capacity back
+rather than let it idle.
 
-**Diagnosis:**
+- Add instance type flexibility to `LaunchTemplateOverrides` — the most effective fix
+- Request fewer nodes; cluster placement groups often cap out around 20–60 instances
+  depending on type
+- Try another AZ or region
 
-```bash
-# Check plugin log
-tail -50 /var/log/slurm/aws_plugin.log
+### Allocation terminated: "Only N/M instances ready"
 
-# Look for:
-# - "MPI node launch failed: Only X/Y instances ready after 300.0s"
-# - Health check failures
-# - EC2 Fleet errors
-```
+Instances launched but did not become ready in time.
 
-**Solutions:**
+- If `network` is in `HealthChecks`, **remove it first** and retry. Blocked ICMP is the most
+  common cause of this exact message.
+- Confirm slurmd starts on boot in the AMI and that the security group allows 6818 from the
+  headnode
+- Raise `TimeoutSeconds` for slow-booting AMIs — and raise `ResumeTimeout` to match
 
-1. **Timeout too short**: Increase `MPIOptions.TimeoutSeconds` to 600
-2. **Instance boot slow**: Optimize AMI size, use faster instance types
-3. **Health checks too strict**: Remove `slurmd` check temporarily:
-   ```json
-   "HealthChecks": ["network"]
-   ```
+### Nodes marked DOWN while the plugin is still waiting
 
-### High Latency Between Nodes
+`TimeoutSeconds` >= `ResumeTimeout`. See
+[TimeoutSeconds must be less than ResumeTimeout](#timeoutseconds-must-be-less-than-resumetimeout).
 
-**Symptom:** MPI job runs but very slow, latency >50μs
+### Node group is skipped with no instances launched
 
-**Diagnosis:**
+`MPIOptions.RequirePlacementGroup` is `true` but `PlacementGroupName` is unset. Set the
+group, or drop the requirement.
 
-```bash
-# Verify placement group
-aws ec2 describe-instances \
-  --filters "Name=tag:NodeGroup,Values=mpi-compute" \
-  --query 'Reservations[].Instances[].[InstanceId,Placement.GroupName]' \
-  --output table
-```
+### High latency between nodes
 
-**Solutions:**
+Verify the placement group applied (command above). A `GroupName` of `null` means the
+setting did not reach EC2. Check that `PlacementGroupName` is on the node group and that the
+node group uses a single subnet.
 
-1. **Placement group not assigned**: Check `PlacementGroupName` in config
-2. **Multiple AZs**: Ensure only single subnet in `SubnetIds`
-3. **Placement group full**: EC2 capacity limit, try different instance type
+### Job fails at MPI_Init
 
-### Job Fails at MPI_Init
-
-**Symptom:** Nodes join Slurm but MPI job crashes at `MPI_Init()`
-
-**Diagnosis:**
+Nodes are in Slurm but cannot talk to each other. Allow all traffic within the compute
+security group:
 
 ```bash
-# From a node in the allocation
-ssh mpi-compute-0
-ping mpi-compute-1  # Test connectivity
-nc -zv mpi-compute-1 22  # Test SSH port
+aws ec2 authorize-security-group-ingress \
+  --group-id sg-compute --source-group sg-compute --protocol all
 ```
 
-**Solutions:**
-
-1. **Security group blocking**: Allow all traffic within security group:
-   ```bash
-   aws ec2 authorize-security-group-ingress \
-     --group-id sg-compute \
-     --source-group sg-compute \
-     --protocol all
-   ```
-
-2. **MPI version mismatch**: Verify same MPI library on all nodes:
-   ```bash
-   srun -p mpi -N 4 mpirun --version
-   ```
-
-3. **Hostname resolution**: Check `/etc/hosts` or DNS
-
-### Placement Group Capacity Error
-
-**Symptom:** `EC2 Fleet error - InsufficientInstanceCapacity - Placement group`
-
-**Explanation:** Placement groups have limits (typically 20-40 instances for c7gn/c6in types)
-
-**Solutions:**
-
-1. **Try different instance type**: Some types have higher limits
-2. **Reduce allocation size**: Request fewer nodes
-3. **Use multiple placement groups**: Advanced - requires code changes
-4. **Remove placement group temporarily**: Jobs will work but with higher latency
-
-### Timeout During Launch
-
-**Symptom:** `MPI node launch failed: Only 6/16 instances ready after 300.0s`
-
-**Diagnosis:**
-
-```bash
-# Check EC2 Fleet errors in log
-grep "EC2 Fleet error" /var/log/slurm/aws_plugin.log
-
-# Check AWS capacity
-aws ec2 describe-instance-type-offerings \
-  --location-type availability-zone \
-  --filters Name=instance-type,Values=c7gn.16xlarge \
-  --region us-east-1
-```
-
-**Solutions:**
-
-1. **Increase timeout**: Set `TimeoutSeconds: 600`
-2. **Add instance type flexibility**:
-   ```json
-   "LaunchTemplateOverrides": [
-     {"InstanceType": "c7gn.16xlarge"},
-     {"InstanceType": "c6in.32xlarge"},
-     {"InstanceType": "c7i.48xlarge"}
-   ]
-   ```
-3. **Try different region/AZ**: Capacity varies
+Then confirm one MPI version across nodes: `srun -p mpi -N 4 mpirun --version`.
 
 ---
 
-## Performance Tips
+## Performance notes
 
-### 1. Choose Right Instance Type
+**Instance choice.** Network bandwidth matters more than core count for most MPI codes.
+Prefer current-generation network-optimized types — `c7gn` (Graviton), `c7i`, `c6in` all
+reach 200 Gbps. Add EFA in the launch template for latency-sensitive codes; the plugin does
+not configure EFA for you. See [Advanced Usage](advanced-usage.md#efa-elastic-fabric-adapter).
 
-| Instance Type | vCPUs | Network | MPI Suitability | Notes |
-|---------------|-------|---------|-----------------|-------|
-| **c7gn.16xlarge** | 64 | 200 Gbps | ⭐⭐⭐⭐⭐ | Latest gen, ARM Graviton3, best network |
-| **c7i.48xlarge** | 192 | 200 Gbps | ⭐⭐⭐⭐⭐ | Latest gen x86, huge core count |
-| **c6in.32xlarge** | 128 | 200 Gbps | ⭐⭐⭐⭐⭐ | Network optimized, excellent for MPI |
-| **m7i.48xlarge** | 192 | 100 Gbps | ⭐⭐⭐⭐ | High memory + good network |
-| **c6i.32xlarge** | 128 | 50 Gbps | ⭐⭐⭐ | Previous gen, still solid |
+**Shared filesystem.** NFS from on-prem over VPN is the usual bottleneck for MPI-IO, at tens
+of milliseconds. FSx for Lustre or local NVMe scratch are far better; EFS sits in between.
 
-**Recommendation:** Use 7th generation (c7*, m7*) or 6th gen with "n" suffix (c6in) for best MPI performance.
-
-### 2. Optimize NFS Performance
-
-NFS from on-prem → AWS adds latency to MPI-IO:
-
-**Solutions:**
-
-| Option | Latency | Throughput | Cost | Best For |
-|--------|---------|------------|------|----------|
-| **On-prem NFS** | High (50-100ms) | Low (<100 MB/s) | $0 | Read-mostly, small I/O |
-| **Amazon EFS** | Low (<5ms) | Medium (1-3 GB/s) | $$$ | General MPI-IO |
-| **FSx for Lustre** | Very Low (<1ms) | Very High (10-100 GB/s) | $$$$ | Heavy MPI-IO |
-| **Local NVMe** | Lowest (<0.1ms) | Highest (>GB/s) | Included | Scratch, no persistence |
-
-**Recommendation:** For MPI-IO heavy workloads, use FSx for Lustre or local NVMe.
-
-### 3. Tune MPI Parameters
-
-**For OpenMPI:**
-
-```bash
-#!/bin/bash
-#SBATCH --partition=mpi
-#SBATCH --nodes=8
-
-# Optimize for low-latency network
-export OMPI_MCA_btl="^openib"  # Don't use InfiniBand (not available)
-export OMPI_MCA_btl_tcp_if_include="eth0"  # Use primary ethernet
-export OMPI_MCA_pml="ob1"  # Use optimized point-to-point
-
-srun ./mpi_application
-```
-
-**For Intel MPI:**
-
-```bash
-export I_MPI_FABRICS=shm:tcp  # Shared memory + TCP
-export I_MPI_TCP_NETMASK=eth0
-```
-
-### 4. Use Process Pinning
-
-Pin MPI ranks to CPU cores for better cache locality:
-
-```bash
-# OpenMPI
-srun --cpu-bind=cores ./mpi_application
-
-# Intel MPI
-export I_MPI_PIN=1
-export I_MPI_PIN_DOMAIN=core
-```
+**Process pinning.** `srun --cpu-bind=cores`, or `I_MPI_PIN=1` for Intel MPI.
 
 ---
 
 ## Limitations
 
-### Hard Limits
-
-1. **Placement Group Capacity**
-   - Varies by instance type (typically 20-60 instances)
-   - c7gn.16xlarge: ~40 instances max
-   - c6in.32xlarge: ~35 instances max
-   - Cannot span availability zones
-
-2. **Single AZ Requirement**
-   - All nodes must be in same AZ (placement group limitation)
-   - Reduces fault tolerance
-
-3. **Launch Timeout**
-   - Default 300s (5 minutes)
-   - If instances don't boot in time, launch fails
-   - Configurable up to 600s (10 minutes)
-
-4. **Max Nodes Per Allocation**
-   - Practical limit: 64 nodes
-   - Theoretical limit: MaxNodes in config
-
-### Soft Limits
-
-5. **NFS Over WAN**
-   - High latency for MPI-IO (50-100ms)
-   - Consider EFS or FSx for Lustre
-
-6. **Spot Instance Risk**
-   - Spot interruption = job failure
-   - Use on-demand for production MPI
-
-7. **No EFA Auto-Configuration**
-   - Elastic Fabric Adapter must be configured in launch template manually
-   - Future: Auto-detect EFA capability
-
-8. **Single-Job Launch**
-   - Plugin launches one allocation at a time
-   - Multiple simultaneous MPI jobs may race for placement group capacity
-
----
-
-## Best Practices
-
-### 1. Always Use Placement Groups
-
-**Why:** 20-80x better latency (2μs vs 50-200μs)
-
-```bash
-# Create placement group first
-aws ec2 create-placement-group \
-  --group-name slurm-mpi-pg \
-  --strategy cluster
-```
-
-### 2. Use On-Demand Instances
-
-**Why:** Spot interruptions mid-MPI job are catastrophic
-
-```json
-"PurchasingOption": "on-demand"
-```
-
-### 3. Test with Small Allocations First
-
-**Why:** Debug configuration before large expensive launches
-
-```bash
-# Start with 2 nodes
-srun -p mpi -N 2 hostname
-
-# Then 4 nodes
-srun -p mpi -N 4 ./test_mpi
-
-# Finally full allocation
-srun -p mpi -N 64 ./production_mpi_job
-```
-
-### 4. Monitor Launch Times
-
-**Why:** Detect capacity issues early
-
-```bash
-# Time the launch
-time srun -p mpi -N 8 hostname
-
-# Expected: 60-120 seconds
-# If >180 seconds: investigate
-```
-
-### 5. Set Reasonable Timeout
-
-**Why:** Balance between patience and fast failure
-
-```json
-"MPIOptions": {
-  "TimeoutSeconds": 300  // 5 minutes for most workloads
-}
-```
-
-Increase for large allocations (16+ nodes):
-
-```json
-"TimeoutSeconds": 600  // 10 minutes for 32-64 nodes
-```
-
-### 6. Use Instance Type Flexibility
-
-**Why:** Improve chances of capacity availability
-
-```json
-"LaunchTemplateOverrides": [
-  {"InstanceType": "c7gn.16xlarge"},
-  {"InstanceType": "c6in.32xlarge"},
-  {"InstanceType": "c7i.48xlarge"}
-]
-```
-
-**Caution:** Ensure all types have similar specs for predictable performance.
-
----
-
-## Examples
-
-### Example 1: Simple MPI Test
-
-```bash
-# Create test program
-cat > hello_mpi.c <<'EOF'
-#include <mpi.h>
-#include <stdio.h>
-
-int main(int argc, char** argv) {
-    MPI_Init(&argc, &argv);
-    int rank, size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-    printf("Hello from rank %d of %d\n", rank, size);
-    MPI_Finalize();
-    return 0;
-}
-EOF
-
-# Compile
-mpicc -o hello_mpi hello_mpi.c
-
-# Run on 4 nodes, 16 processes
-srun -p mpi -N 4 -n 16 ./hello_mpi
-```
-
-### Example 2: MPI with SBATCH
-
-```bash
-#!/bin/bash
-#SBATCH --partition=mpi
-#SBATCH --nodes=8
-#SBATCH --ntasks-per-node=96
-#SBATCH --time=02:00:00
-#SBATCH --job-name=cfd_simulation
-#SBATCH --output=cfd_%j.out
-#SBATCH --error=cfd_%j.err
-
-# Load environment
-module load openmpi/4.1.1
-
-# Run simulation
-srun ./cfd_solver input.dat
-```
-
-### Example 3: Check Health Before Job
-
-```bash
-# Launch nodes
-srun -p mpi -N 4 hostname
-
-# In another terminal, check health
-python3 health_check.py 10.1.1.50
-python3 health_check.py 10.1.1.51
-python3 health_check.py 10.1.1.52
-python3 health_check.py 10.1.1.53
-
-# All should show ✓ PASS for network and slurmd
-```
+- One placement group per node group. Define multiple node groups if you need more.
+- Single AZ per MPI node group, inherent to cluster placement groups. No AZ failover.
+- Concurrent MPI jobs compete for the same placement group capacity.
+- EFA is not auto-configured; set it in the launch template.
+- The plugin cannot re-request capacity after a short launch. Slurm requeues the job
+  according to your partition settings.
 
 ---
 
 ## FAQ
 
-**Q: Can I mix MPI and non-MPI partitions?**
+**Does this make MPI work where v2 could not?**
+No. v2 runs MPI correctly — Slurm holds the job until all nodes register. v3 makes failed
+launches cheaper and easier to diagnose.
 
-A: Yes! MPI support is per-partition. Non-MPI partitions continue to use asynchronous launch.
+**Can I mix MPI and non-MPI partitions?**
+Yes. The settings are per node group; everything else behaves exactly as on v2.
 
-**Q: What happens if one node fails health checks?**
+**What happens when one node fails its readiness check?**
+The whole allocation is terminated so you are not billed for unusable nodes. Slurm requeues
+the job per your partition settings.
 
-A: The entire launch fails, all instances are terminated, and the job is requeued. This prevents partial allocations.
+**Do I need to change my MPI application?**
+No.
 
-**Q: Can I use spot instances for MPI?**
-
-A: Technically yes, but highly discouraged. Spot interruption kills your entire MPI job with no checkpoint.
-
-**Q: Do I need to modify my MPI application?**
-
-A: No. Your MPI application runs unchanged. The plugin only affects how nodes are launched.
-
-**Q: What's the maximum number of MPI nodes?**
-
-A: Depends on placement group capacity (typically 20-60 for most instance types). Configured via `MaxNodes`.
-
-**Q: Can I use multiple placement groups?**
-
-A: Not currently supported. Would require code changes. Single placement group per partition.
-
-**Q: Does this work with EFA (Elastic Fabric Adapter)?**
-
-A: Yes, if EFA is configured in your launch template. The plugin doesn't auto-configure EFA (yet).
-
-**Q: What if my AMI is slow to boot?**
-
-A: Increase `MPIOptions.TimeoutSeconds` to 600 (10 minutes) and optimize your AMI size.
+**Can I get the placement group convenience without the blocking wait?**
+Yes — set `PlacementGroupName` and `MPIOptions.WaitForAllNodes: false`.
 
 ---
 
-## See Also
+## See also
 
-- [IMPLEMENTATION_PLAN_MPI.md](IMPLEMENTATION_PLAN_MPI.md) - Technical implementation details
-- [Configuration Reference](configuration.md) - Full partitions.json schema
-- [Troubleshooting Guide](troubleshooting.md) - General plugin troubleshooting
-- [Advanced Usage](advanced-usage.md) - EFA, FSx for Lustre, and more
-- [Performance Tuning](performance-tuning.md) - Optimization tips
-
-## Support
-
-For issues with MPI support:
-
-1. Check `/var/log/slurm/aws_plugin.log` for errors
-2. Run `python3 health_check.py <node-ip>` to verify node health
-3. Review [Troubleshooting](#troubleshooting) section above
-4. Open GitHub issue with:
-   - Plugin version
-   - Slurm version
-   - MPI configuration (partitions.json excerpt)
-   - Error logs
-   - Output of `sinfo -Nel`
+- [Configuration Reference](configuration.md) — full `partitions.json` schema
+- [Performance Tuning](performance-tuning.md) — `ResumeTimeout` and `ResumeRate`
+- [Advanced Usage](advanced-usage.md) — placement groups, EFA, FSx for Lustre
+- [Upgrade Guide](upgrade-guide.md) — v2 to v3
+- [Example: MPI workloads](../examples/example-5-mpi-workloads.json)

@@ -7,13 +7,12 @@ operational before being added to the Slurm cluster.
 
 Usage:
     python3 health_check.py 10.1.1.50
-    python3 health_check.py 10.1.1.50 --checks network,slurmd,nfs
+    python3 health_check.py 10.1.1.50 --checks network,slurmd
     python3 health_check.py 10.1.1.50 --checks network --timeout 10
 
 Checks:
-    network - Ping host to verify network connectivity
+    network - Ping host to verify network connectivity (requires ICMP to be allowed)
     slurmd  - Check if slurmd port (6818) is responding
-    nfs     - Check if NFS is mounted (requires SSH access, not implemented yet)
 """
 
 import argparse
@@ -22,13 +21,18 @@ import subprocess
 import sys
 
 
-def check_node_health(ip_address, checks=['network', 'slurmd'], timeout=5):
+SLURMD_PORT = 6818
+
+VALID_CHECKS = ('network', 'slurmd')
+
+
+def check_node_health(ip_address, checks=('network', 'slurmd'), timeout=5):
     """
     Perform health checks on a node
 
     Args:
         ip_address: Node IP to check
-        checks: List of check types ['network', 'slurmd', 'nfs']
+        checks: List of check types ['network', 'slurmd']
         timeout: Timeout in seconds for each check
 
     Returns:
@@ -40,10 +44,7 @@ def check_node_health(ip_address, checks=['network', 'slurmd'], timeout=5):
         results['network'] = ping_host(ip_address, timeout=timeout)
 
     if 'slurmd' in checks:
-        results['slurmd'] = check_port(ip_address, 6818, timeout=timeout)
-
-    if 'nfs' in checks:
-        results['nfs'] = check_nfs_mount(ip_address)
+        results['slurmd'] = check_port(ip_address, SLURMD_PORT, timeout=timeout)
 
     success = all(results.values())
     return (success, results)
@@ -88,28 +89,12 @@ def check_port(ip_address, port, timeout=5):
     sock.settimeout(timeout)
     try:
         sock.connect((ip_address, port))
-        sock.close()
         return True
     except Exception as e:
         print(f'  Error: {e}', file=sys.stderr)
         return False
-
-
-def check_nfs_mount(ip_address):
-    """
-    Check if NFS is mounted on the node
-
-    Note: This requires SSH access and is not implemented yet.
-    Future enhancement: SSH to node and check mount output.
-
-    Args:
-        ip_address: IP address to check
-
-    Returns:
-        bool: Always True (not implemented)
-    """
-    print('  Warning: NFS check not yet implemented, skipping', file=sys.stderr)
-    return True
+    finally:
+        sock.close()
 
 
 def main():
@@ -124,8 +109,8 @@ Examples:
   # Check only network connectivity
   %(prog)s 10.1.1.50 --checks network
 
-  # Check all with custom timeout
-  %(prog)s 10.1.1.50 --checks network,slurmd,nfs --timeout 10
+  # Check both with custom timeout
+  %(prog)s 10.1.1.50 --checks network,slurmd --timeout 10
 
   # Batch check multiple nodes
   for ip in 10.1.1.{50..53}; do %(prog)s $ip; done
@@ -133,7 +118,7 @@ Examples:
     )
     parser.add_argument('ip_address', help='IP address of node to check')
     parser.add_argument('--checks', default='network,slurmd',
-                        help='Comma-separated list of checks: network,slurmd,nfs (default: network,slurmd)')
+                        help='Comma-separated list of checks: network,slurmd (default: network,slurmd)')
     parser.add_argument('--timeout', type=int, default=5,
                         help='Timeout in seconds for each check (default: 5)')
     parser.add_argument('-v', '--verbose', action='store_true',
@@ -143,10 +128,9 @@ Examples:
     checks = [c.strip() for c in args.checks.split(',')]
 
     # Validate check names
-    valid_checks = ['network', 'slurmd', 'nfs']
     for check in checks:
-        if check not in valid_checks:
-            print(f'Error: Invalid check "{check}". Valid checks: {", ".join(valid_checks)}',
+        if check not in VALID_CHECKS:
+            print(f'Error: Invalid check "{check}". Valid checks: {", ".join(VALID_CHECKS)}',
                   file=sys.stderr)
             sys.exit(2)
 
