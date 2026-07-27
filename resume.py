@@ -14,7 +14,7 @@ logger, config, partitions = common.get_common('resume')
 
 
 # Defaults for synchronous launch (see docs/mpi-support.md)
-DEFAULT_LAUNCH_TIMEOUT = 300
+DEFAULT_LAUNCH_TIMEOUT = common.DEFAULT_LAUNCH_TIMEOUT
 
 # 'network' (ICMP) is deliberately NOT a default: many security groups do not
 # allow ICMP, and a blocked ping would fail every node and terminate an

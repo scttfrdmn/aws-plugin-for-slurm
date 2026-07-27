@@ -18,6 +18,10 @@ behave exactly as on v2.
 - `PlacementGroupName` — placement group per node group rather than per launch template.
 - `MPIOptions` — `WaitForAllNodes`, `TimeoutSeconds`, `HealthChecks`, `RequirePlacementGroup`.
 - `health_check.py` — standalone readiness checker for a node IP.
+- Startup warnings for `config.json`/`partitions.json` combinations that are individually
+  valid but conflict at runtime: `MPIOptions.TimeoutSeconds` without enough headroom under
+  `ResumeTimeout`, and `ResumeRate` below a sync-launch node group's `MaxNodes`. Warnings
+  only — the plugin never refuses to launch over them.
 - `docs/mpi-support.md` — guide, explicit that v2 already runs MPI correctly and that these
   settings address the cost and diagnosability of *failed* launches.
 - `.gitignore` — Python bytecode, local `config.json`/`partitions.json`, plugin log.
@@ -39,6 +43,10 @@ behave exactly as on v2.
 - Sockets in port checks are now closed on the success path.
 - Warn when a placement group is configured with multiple subnets, which a cluster placement
   group cannot span.
+- `template.yaml` raised `ResumeTimeout` from 300 to 600 (and `SuspendTime` 350 to 650). The
+  old value equaled the default `MPIOptions.TimeoutSeconds`, so a CloudFormation-deployed
+  cluster that enabled `EnableMPISupport` had Slurm marking nodes `DOWN` while `resume.py`
+  was still waiting for them.
 
 ### Removed
 

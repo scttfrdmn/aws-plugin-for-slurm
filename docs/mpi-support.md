@@ -145,9 +145,18 @@ Leave real headroom:
 MPIOptions.TimeoutSeconds  <=  ResumeTimeout - 120
 ```
 
-The shipped CloudFormation template sets `ResumeTimeout: 300`, which is **not** compatible
-with the default `TimeoutSeconds: 300`. Raise `ResumeTimeout` to 600 if you enable
-synchronous launch. See [Performance Tuning](performance-tuning.md#resumetimeout).
+The plugin warns at startup when a node group leaves too little headroom:
+
+```
+WARNING - Node group mpi/compute: MPIOptions.TimeoutSeconds (300) leaves too little
+          headroom under ResumeTimeout (300). Slurm may mark nodes DOWN while resume.py
+          is still waiting. Set ResumeTimeout to at least 420.
+```
+
+This is a warning, not an error — `config.json` is not necessarily the authoritative
+`slurm.conf`, so the plugin will not refuse to launch over it. The shipped CloudFormation
+template sets `ResumeTimeout: 600`, which accommodates the default `TimeoutSeconds: 300`.
+See [Performance Tuning](performance-tuning.md#resumetimeout).
 
 ### `ResumeRate` must not split the allocation
 
