@@ -18,14 +18,24 @@ jobs:
   # syntax error is a cluster that silently stops scaling. This job is the cheap gate.
   compile:
     name: Compile (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        # Python 3.6 is the documented floor but is not installable on current GitHub
-        # runners; tests/test_python_floor.py enforces it statically instead. 3.7 is the
-        # oldest version actually runnable here.
-        python-version: ['3.7', '3.8', '3.9', '3.10', '3.11', '3.12', '3.13']
+        # Python 3.6 is the documented floor but is not installable on any current GitHub
+        # runner; tests/test_python_floor.py enforces it statically instead. 3.7 is the
+        # oldest version actually runnable, and it is worth keeping because it is the
+        # closest thing to the floor — but actions/setup-python has no 3.7 build for
+        # Ubuntu 24.04, so that one job is pinned to 22.04. When 22.04 retires, drop 3.7
+        # and rely on the static floor check.
+        include:
+          - {python-version: '3.7', os: ubuntu-22.04}
+          - {python-version: '3.8', os: ubuntu-latest}
+          - {python-version: '3.9', os: ubuntu-latest}
+          - {python-version: '3.10', os: ubuntu-latest}
+          - {python-version: '3.11', os: ubuntu-latest}
+          - {python-version: '3.12', os: ubuntu-latest}
+          - {python-version: '3.13', os: ubuntu-latest}
     steps:
       - uses: actions/checkout@v4
 
@@ -84,11 +94,17 @@ jobs:
 
   test:
     name: Tests (Python ${{ matrix.python-version }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        python-version: ['3.7', '3.9', '3.12', '3.13']
+        # 3.7 pinned to 22.04 for the same reason as the compile job. Oldest and newest
+        # matter most; the middle versions are a spot check.
+        include:
+          - {python-version: '3.7', os: ubuntu-22.04}
+          - {python-version: '3.9', os: ubuntu-latest}
+          - {python-version: '3.12', os: ubuntu-latest}
+          - {python-version: '3.13', os: ubuntu-latest}
     steps:
       - uses: actions/checkout@v4
 
