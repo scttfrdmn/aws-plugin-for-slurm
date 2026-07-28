@@ -334,10 +334,11 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-This project is licensed under the Apache License 2.0. See [LICENSE](LICENSE) for details.
+This project is licensed under MIT-0 (MIT No Attribution), the same license as the
+upstream AWS plugin. See [LICENSE](LICENSE) for details.
 
-Original work Copyright 2020 Amazon.com, Inc. or its affiliates (MIT-0 License)
-Modified work Copyright 2025 Scott Friedman (Apache License 2.0)
+Original work Copyright 2020 Amazon.com, Inc. or its affiliates
+Modified work Copyright 2025 Scott Friedman
 
 ## Related Projects
 
