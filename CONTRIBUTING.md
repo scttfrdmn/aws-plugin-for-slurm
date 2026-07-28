@@ -56,6 +56,6 @@ If you discover a potential security issue in this project we ask that you notif
 
 ## Licensing
 
-See the [LICENSE](https://github.com/aws-samples/aws-plugin-for-slurm/blob/master/LICENSE) file for our project's licensing. We will ask you to confirm the licensing of your contribution.
+See the [LICENSE](https://github.com/scttfrdmn/aws-plugin-for-slurm/blob/plugin-v3/LICENSE) file for our project's licensing. We will ask you to confirm the licensing of your contribution. Note that this fork is Apache 2.0; the upstream `aws-samples` repository is MIT-0.
 
 We may ask you to sign a [Contributor License Agreement (CLA)](http://en.wikipedia.org/wiki/Contributor_License_Agreement) for larger changes.
