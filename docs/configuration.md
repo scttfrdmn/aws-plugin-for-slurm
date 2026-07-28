@@ -257,6 +257,36 @@ This JSON file specifies the groups of nodes and associated partitions that Slur
   - `Name` - Automatically added with value `[partition_name]-[nodegroup_name]-[id]`. Do not override this tag as `suspend.py` uses it to find instances.
   - Template variables: Use `{ip_address}`, `{node_name}`, or `{hostname}` in tag values for dynamic substitution
 
+###### PlacementGroupName
+- **Type**: String
+- **Optional**: Yes
+- **Added in**: v3.1
+- **Description**: Name of an existing EC2 placement group to launch instances into. Overrides any `Placement` set in the launch template. A cluster placement group cannot span availability zones, so use a single subnet in `SubnetIds` when this is set.
+
+###### EnableMPISupport
+- **Type**: Boolean
+- **Optional**: Yes
+- **Default**: `false`
+- **Added in**: v3.1
+- **Description**: Enable all-or-nothing launch for this node group. `resume.py` waits for the full allocation to be ready and terminates it if any node is missing or unhealthy, rather than registering a partial allocation. Only affects multi-node requests. See [MPI and Tightly-Coupled Workloads](mpi-support.md).
+
+###### MPIOptions
+- **Type**: Object
+- **Optional**: Yes
+- **Added in**: v3.1
+- **Description**: Tuning for all-or-nothing launch. Ignored unless `EnableMPISupport` is `true`.
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `WaitForAllNodes` | Boolean | `true` | Set `false` to launch asynchronously (v2 behavior) while keeping other settings |
+| `TimeoutSeconds` | Integer | `300` | Seconds to wait for the full allocation before terminating it. **Must be well below `ResumeTimeout`** |
+| `HealthChecks` | Array | `["slurmd"]` | Readiness checks: `slurmd` (TCP 6818), `network` (ICMP). `[]` disables |
+| `RequirePlacementGroup` | Boolean | `false` | Skip the launch entirely if `PlacementGroupName` is not set |
+
+**Warning**: `network` uses ICMP and is **not** enabled by default. If your security group blocks ICMP, enabling it causes every node to fail its check and the entire healthy allocation to be terminated at the timeout.
+
+**Warning**: `resume.py` blocks for up to `TimeoutSeconds`. Slurm counts down `ResumeTimeout` independently, so if `TimeoutSeconds >= ResumeTimeout` Slurm marks nodes `DOWN` while the plugin is still waiting. Keep `TimeoutSeconds <= ResumeTimeout - 120`.
+
 ##### PartitionOptions
 - **Type**: Object (key-value pairs)
 - **Optional**: Yes

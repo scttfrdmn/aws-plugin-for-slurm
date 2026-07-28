@@ -35,7 +35,16 @@ A Slurm plugin that enables dynamic cloud bursting from on-premises HPC clusters
 
 Version 3 focuses on the **real-world use case**: bursting from on-premises to AWS.
 
-**New in v3:**
+**New in v3.1 (tightly-coupled workloads):**
+- **All-or-nothing launch** - Terminate short allocations immediately instead of paying for idle nodes until `ResumeTimeout`
+- **Placement groups in `partitions.json`** - Configure per node group rather than per launch template
+- **Readiness checks** - Name the node and failed check in the log instead of an opaque `DOWN`
+
+Note: v2 already runs MPI jobs correctly — Slurm holds a job in `CONFIGURING` until every
+node registers. These additions reduce the cost and opacity of *failed* launches. See
+[MPI and Tightly-Coupled Workloads](docs/mpi-support.md).
+
+**New in v3.0:**
 - **Comprehensive on-prem bursting guide** - Step-by-step VPN setup, AMI building, troubleshooting
 - **Automated AMI builder** - Packer template ensures exact Slurm version match
 - **Connectivity validator** - Pre-flight checks for network, NFS, Munge
@@ -150,6 +159,7 @@ The plugin integrates with Slurm's [power save mode](https://slurm.schedmd.com/p
 
 ### Primary Documentation (On-Prem Bursting)
 - **[On-Premises to AWS Bursting Guide](docs/onprem-to-aws-bursting.md)** ⭐ - Complete setup guide
+- [MPI and Tightly-Coupled Workloads](docs/mpi-support.md) - Placement groups, all-or-nothing launch (v3.1)
 - [Configuration Reference](docs/configuration.md) - config.json and partitions.json parameters
 - [Troubleshooting Guide](docs/troubleshooting.md) - Common issues and solutions
 - [Security Best Practices](docs/security.md) - IAM, network security, Munge key management
@@ -169,6 +179,7 @@ The plugin integrates with Slurm's [power save mode](https://slurm.schedmd.com/p
 - [Multi-AZ deployment](examples/example-2-multi-az.json)
 - [Account-based permissions](examples/example-3-account-permissions.json)
 - [GPU workloads](examples/example-4-gpu-nodes.json)
+- [MPI workloads](examples/example-5-mpi-workloads.json) - Placement group + all-or-nothing launch
 - [Basic config](examples/config-basic.json)
 - [Production config](examples/config-production.json)
 

@@ -10,9 +10,30 @@ This guide helps you migrate from plugin-v2 to plugin-v3.
 - **Example configurations** - Ready-to-use examples for common scenarios
 - **GPU/GRES documentation** - Complete guide for GPU workloads
 
+### Behavior Changes (v3.1)
+
+v3.1 adds three opt-in settings for tightly-coupled workloads. **All are off by default**, so
+upgrading changes nothing until you enable them on a node group:
+
+- `EnableMPISupport` - all-or-nothing launch: terminate a short or unhealthy allocation
+  immediately instead of registering a partial one
+- `PlacementGroupName` - set the placement group per node group instead of per launch template
+- `MPIOptions` - timeout, readiness checks, and placement-group enforcement
+
+To be explicit about what this is *not*: v2 already runs MPI jobs correctly, because Slurm
+holds a job in `CONFIGURING` until every allocated node registers its slurmd. These settings
+reduce the cost and opacity of *failed* launches. See
+[MPI and Tightly-Coupled Workloads](mpi-support.md).
+
+**If you enable `EnableMPISupport`, raise `ResumeTimeout`.** `resume.py` then blocks for up to
+`MPIOptions.TimeoutSeconds` (default 300) while Slurm independently counts down
+`ResumeTimeout`. Keep `ResumeTimeout >= TimeoutSeconds + 120`.
+
 ### No Breaking Changes
 
-**Good news**: v3 is primarily a documentation update. The core plugin code remains compatible with v2 configurations.
+**Good news**: v3 is compatible with v2 configurations. Existing `config.json` and
+`partitions.json` files work unchanged, and node groups without the v3.1 settings behave
+exactly as they did on v2.
 
 ## Migration Path
 
@@ -144,6 +165,7 @@ v2 had everything in one 607-line README.md
 
 ```
 docs/
+├── onprem-to-aws-bursting.md  # Primary guide: on-prem to AWS
 ├── configuration.md        # config.json and partitions.json reference
 ├── manual-installation.md  # Step-by-step installation
 ├── cloudformation.md       # CFN deployment details
@@ -153,6 +175,7 @@ docs/
 ├── performance-tuning.md   # Optimization guide
 ├── monitoring.md           # CloudWatch and observability
 ├── advanced-usage.md       # Advanced scenarios
+├── mpi-support.md          # Tightly-coupled workloads (v3.1)
 ├── upgrade-guide.md        # This file
 └── testing.md              # Validation procedures
 
@@ -161,9 +184,11 @@ examples/
 ├── example-2-multi-az.json
 ├── example-3-account-permissions.json
 ├── example-4-gpu-nodes.json
+├── example-5-mpi-workloads.json
 ├── config-basic.json
 ├── config-gpu.json
 ├── config-production.json
+├── packer/                 # AMI builder
 └── README.md
 ```
 
@@ -172,6 +197,8 @@ examples/
 | v2 Location | v3 Location |
 |-------------|-------------|
 | README "Concepts" | README "How It Works" |
+| N/A | docs/onprem-to-aws-bursting.md (new) |
+| N/A | docs/mpi-support.md (new in v3.1) |
 | README "Plugin files" | docs/configuration.md |
 | README "Manual deployment" | docs/manual-installation.md |
 | README "CloudFormation" | docs/cloudformation.md |
@@ -309,7 +336,7 @@ See [Manual Installation Guide](manual-installation.md) for fresh deployment.
 
 | Component | v2 | v3 | Notes |
 |-----------|----|----|-------|
-| Plugin code | ✓ | ✓ | Identical functionality |
+| Plugin code | ✓ | ✓ | v3.1 adds opt-in launch settings, off by default |
 | config.json | ✓ | ✓ | v2 configs work in v3 |
 | partitions.json | ✓ | ✓ | v2 configs work in v3 |
 | slurm.conf | ✓ | ✓ | No changes needed |
