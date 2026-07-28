@@ -170,6 +170,27 @@ def warn_on_conflicting_settings(config_data, partitions_data):
     resume_rate = slurm_conf.get('ResumeRate')
 
     for partition in partitions_data.get('Partitions', []):
+
+        # A tightly-coupled job expects exclusive use of its nodes: sharing a node with
+        # another job oversubscribes the cores the ranks are pinned to. Checked once per
+        # partition, because OverSubscribe is a partition-level setting.
+        partition_has_mpi = any(
+            nodegroup.get('EnableMPISupport', False)
+            for nodegroup in partition.get('NodeGroups', [])
+        )
+        if partition_has_mpi:
+            partition_options = partition.get('PartitionOptions', {})
+            oversubscribe = partition_options.get('OverSubscribe')
+            # NO and EXCLUSIVE both give the job undivided nodes (EXCLUSIVE is stricter
+            # still). Only YES and FORCE let another job share the node.
+            if oversubscribe is not None \
+                    and str(oversubscribe).upper().split(':')[0] not in ('NO', 'EXCLUSIVE'):
+                logger.warning(
+                    'Partition %s enables MPI support but sets OverSubscribe=%s. '
+                    'Tightly-coupled jobs should not share nodes - set OverSubscribe=NO.',
+                    partition.get('PartitionName'), oversubscribe
+                )
+
         for nodegroup in partition.get('NodeGroups', []):
             if not nodegroup.get('EnableMPISupport', False):
                 continue
@@ -313,14 +334,24 @@ def get_node_range(partition, nodegroup, nb_nodes=None):
 # Run scontrol and return output
 # - command: name of the command such as scontrol
 # - arguments: array
-def run_scommand(command, arguments):
-    
+# - check: raise if the command exits non-zero. Off by default because the read-only
+#   callers ('scontrol show node', 'sinfo') are tolerant of partial results, and
+#   failing them hard would be a behavior change.
+def run_scommand(command, arguments, check=False):
+
     scommand_path = '%s%s' %(config['SlurmBinPath'], command)
     cmd = [scommand_path] + arguments
     logger.debug('Command %s: %s' %(command, ' '.join(cmd)))
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE)
-    lines = proc.communicate()[0].splitlines()
-    return [line.decode() for line in lines]
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    stdout, stderr = proc.communicate()
+    if check and proc.returncode != 0:
+        raise Exception('%s exited %d: %s' %(command, proc.returncode, stderr.decode().strip()))
+
+    # stderr is captured rather than inherited, so log it instead of dropping it
+    if stderr.strip():
+        logger.debug('Command %s stderr: %s' %(command, stderr.decode().strip()))
+
+    return [line.decode() for line in stdout.splitlines()]
 
 
 # Use 'scontrol show hostnames' to expand the hostlist and return a list of node names
@@ -370,24 +401,15 @@ def get_partition_nodegroup(partition_name, nodegroup_name):
 
 
 # Use 'scontrol update node' to update nodes
+# Raises if scontrol fails, so that callers do not log success for a node that was
+# never registered. Every caller already wraps this in try/except.
 def update_node(node_name, parameters):
-    
+
     parameters_split = parameters.split(' ')
     arguments = ['update', 'nodename=%s' %node_name] + parameters_split
-    run_scommand('scontrol', arguments)
+    run_scommand('scontrol', arguments, check=True)
     
     
-# Call sinfo and return node status for a list of nodes
-def get_node_state(hostlist):
-    
-    try:
-        cmd = [scontrol_path, '-n', ','.join(hostlist), '-N', '-o', '"%N %t"']
-        return run_scommand('sinfo', arguments)
-    except Exception as e:
-        logger.critical('Failed to retrieve node state - %s' %e)
-        sys.exit(1)
-
-
 # Return boto3 client
 def get_ec2_client(nodegroup):
     

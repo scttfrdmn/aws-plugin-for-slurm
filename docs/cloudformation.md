@@ -185,9 +185,10 @@ The CloudFormation stack creates:
 
 #### PluginPrefixUrl
 - **Type**: URL
-- **Default**: `https://github.com/aws-samples/aws-plugin-for-slurm/raw/plugin-v2/`
+- **Default**: `https://github.com/scttfrdmn/aws-plugin-for-slurm/raw/plugin-v3/`
 - **Description**: Base URL for plugin files
-- **Note**: Should be updated to `plugin-v3` for this version
+- **Note**: Must point at a branch that contains the v3 plugin files. The upstream
+  `aws-samples` repository has no `plugin-v3` branch.
 
 ## Deployment Steps
 
