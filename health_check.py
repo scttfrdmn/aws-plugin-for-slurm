@@ -62,9 +62,12 @@ def ping_host(ip_address, timeout=5):
         bool: True if ping successful
     """
     try:
+        # stdout/stderr rather than capture_output, which is Python 3.7+; this plugin
+        # documents a 3.6 floor.
         result = subprocess.run(
             ['ping', '-c', '1', '-W', str(timeout), ip_address],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=timeout + 1
         )
         return result.returncode == 0

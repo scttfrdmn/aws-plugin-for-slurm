@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added — testing and CI (v3.3)
+
+- Automated test suite (`tests/`, 160 tests, standard library only). Requires no AWS
+  account, no credentials and no Slurm controller: `boto3` is shadowed by a fake that
+  journals every EC2 call, `scontrol`/`sinfo` are stubbed on `SlurmBinPath`, and the plugin
+  scripts run as subprocesses the way `slurmctld` invokes them. Assertions read the call
+  journal and the `scontrol` argv log rather than log text. Runs in ~15 seconds.
+- Mutation tests (`tests/test_mutations.py`, opt-in via `RUN_MUTATION_TESTS=1`). Each fixed
+  bug is reintroduced into a copy of the plugin and the tests that name it must fail — a
+  regression test that passes against the broken code pins nothing. All 11 mutations are
+  caught.
+- `tests/test_python_floor.py` enforces the documented Python 3.6 floor by static scan,
+  covering both the plugin and the suite itself. CI cannot install 3.6 on current GitHub
+  runners, so the floor is checked rather than exercised.
+- `tests/test_docs_links.py` checks every internal documentation link and heading anchor.
+  External URLs are deliberately not checked, so CI does not fail when an unrelated site
+  is down.
+- GitHub Actions CI (`.github/workflows/ci.yml`) on every push and pull request:
+  byte-compile all plugin scripts across Python 3.7–3.13, parse and schema-validate every
+  `examples/*.json`, run the suite on 3.7/3.9/3.12/3.13, run the mutation tests, and check
+  documentation links and the version floor.
+
+### Fixed
+
+- `resume.py` and `health_check.py` called `subprocess.run(capture_output=True)`, which is
+  Python 3.7+, while README and the upgrade guide both promise 3.6+. On a RHEL/CentOS 7
+  headnode running system Python 3.6 the `ping` call raised `TypeError`, which the
+  surrounding `except Exception` swallowed into "unreachable". In `resume.py` this affects
+  node groups that opt into `HealthChecks: ["network"]` — a healthy allocation would be
+  reported unhealthy and, under `EnableMPISupport`, terminated. `["slurmd"]` is the default
+  and uses a socket, so it was unaffected. In `health_check.py` the CLI checks `network` by
+  default, so `health_check.py <ip>` reported a hard FAIL on every reachable node.
+  Replaced with `stdout=`/`stderr=PIPE`; the floor is now enforced by a test.
+- Three internal documentation links in `docs/onprem-to-aws-bursting.md` pointed at
+  headings that had been renamed or that live in a different file (`advanced-usage.md#gpu-support`,
+  `configuration.md#spot-instances`, `advanced-usage.md#multi-region`).
+- `suspend.py` aborted the entire suspend run with `NameError` when `describe_instances`
+  failed for one node group, falling through to an unassigned `response_describe`. Every
+  remaining instance stayed running and billing. It now logs the node group and continues.
+- `suspend.py` did not reset `node_name` between instances, so an instance with no `Name`
+  tag was logged under the previously-seen node's name — misleading exactly when an
+  operator is chasing a leaked instance.
+
 ### Changed
 
 - License reverted to **MIT-0** (MIT No Attribution) to match the upstream AWS plugin.

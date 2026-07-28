@@ -1,5 +1,7 @@
 # AWS Plugin for Slurm - Version 3
 
+[![CI](https://github.com/scttfrdmn/aws-plugin-for-slurm/actions/workflows/ci.yml/badge.svg)](https://github.com/scttfrdmn/aws-plugin-for-slurm/actions/workflows/ci.yml)
+
 A Slurm plugin that enables dynamic cloud bursting from on-premises HPC clusters to AWS.
 
 ## Overview
@@ -171,7 +173,8 @@ The plugin integrates with Slurm's [power save mode](https://slurm.schedmd.com/p
 - [Performance Tuning](docs/performance-tuning.md) - Optimization recommendations
 - [Monitoring](docs/monitoring.md) - CloudWatch integration
 - [Advanced Usage](docs/advanced-usage.md) - Multi-region, GPU, EFA, FSx
-- [Testing](docs/testing.md) - Validation procedures
+- [Testing](docs/testing.md) - Validation procedures for a real deployment
+- [Automated Test Suite](tests/README.md) - How the tests fake AWS and Slurm, and what they do not cover
 - [Upgrade Guide](docs/upgrade-guide.md) - Migrating from v2
 
 ### Examples
@@ -327,6 +330,26 @@ This is a community-maintained project. For help:
    - Slurm version (on-prem and AMI)
    - Network setup (VPN/Direct Connect)
    - Error logs from `/var/log/slurm/aws_plugin.log`
+
+## Running the Tests
+
+The test suite needs no AWS account, no credentials, and no Slurm controller — it fakes
+boto3 and stubs `scontrol`/`sinfo`, then runs the plugin scripts as subprocesses the way
+slurmctld does. Standard library only:
+
+```bash
+# Whole suite, from the repository root (~15 seconds)
+python3 -m unittest discover -s tests -t . -v
+
+# One module
+python3 -m unittest tests.test_resume_launch -v
+
+# Mutation tests: reintroduce each fixed bug, confirm a test catches it (slower)
+RUN_MUTATION_TESTS=1 python3 -m unittest tests.test_mutations -v
+```
+
+See [tests/README.md](tests/README.md) for how the sandbox works and what the suite does
+not cover. CI runs all of this on every push and pull request.
 
 ## Contributing
 

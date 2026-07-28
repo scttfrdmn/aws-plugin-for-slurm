@@ -234,9 +234,13 @@ class Sandbox:
         # real boto3 ahead of the sandbox copy.
         env['PYTHONPATH'] = self.path
 
+        # PIPE/universal_newlines rather than capture_output/text: those are Python 3.7+,
+        # and the plugin's documented floor is 3.6. An operator on a CentOS 7 headnode
+        # should be able to run the suite against the Python that runs the plugin.
         proc = subprocess.run(
             [sys.executable, os.path.join(self.path, script)] + list(args),
-            cwd=self.path, env=env, capture_output=True, text=True, timeout=120,
+            cwd=self.path, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            universal_newlines=True, timeout=120,
         )
         if expect_returncode is not None and proc.returncode != expect_returncode:
             raise AssertionError(

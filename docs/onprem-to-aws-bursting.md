@@ -2353,9 +2353,9 @@ See [Security Best Practices](security.md) for details.
 
 - **Tune performance**: [Performance Tuning Guide](performance-tuning.md)
 - **Add monitoring**: [Monitoring Guide](monitoring.md)
-- **Configure GPU bursting**: [Advanced Usage - GPU Section](advanced-usage.md#gpu-support)
-- **Set up Spot instances**: [Configuration Reference - Spot Options](configuration.md#spot-instances)
-- **Multi-region bursting**: [Advanced Usage - Multi-Region](advanced-usage.md#multi-region)
+- **Configure GPU bursting**: [Configuration Reference - GPU Configuration](configuration.md#gpu-configuration)
+- **Set up Spot instances**: [Configuration Reference - SpotOptions](configuration.md#spotoptions)
+- **Multi-region bursting**: [Advanced Usage - Multi-Region Deployments](advanced-usage.md#multi-region-deployments)
 
 ---
 
