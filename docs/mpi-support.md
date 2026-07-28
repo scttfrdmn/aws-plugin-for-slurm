@@ -166,6 +166,20 @@ batch. Each invocation only knows about its own subset, so a 40-node job under
 applies to each half, not the job. Keep `ResumeRate` at or above your largest MPI
 allocation.
 
+### `OverSubscribe` must not let jobs share nodes
+
+A tightly-coupled job expects undivided nodes; sharing one oversubscribes the cores its
+ranks are pinned to. The plugin warns when an MPI-enabled partition sets `OverSubscribe`
+to a sharing value:
+
+```
+WARNING - Partition mpi enables MPI support but sets OverSubscribe=YES. Tightly-coupled
+          jobs should not share nodes - set OverSubscribe=NO.
+```
+
+`NO` and `EXCLUSIVE` are both fine — `EXCLUSIVE` is stricter still. `YES` and `FORCE`
+(with or without a count, e.g. `FORCE:2`) permit sharing and trigger the warning.
+
 ---
 
 ## Slurm configuration
@@ -310,6 +324,17 @@ Instances launched but did not become ready in time.
 - Confirm slurmd starts on boot in the AMI and that the security group allows 6818 from the
   headnode
 - Raise `TimeoutSeconds` for slow-booting AMIs — and raise `ResumeTimeout` to match
+
+### Allocation terminated: "N of M nodes could not be registered in Slurm"
+
+The instances came up healthy but `scontrol update` failed, so Slurm has no address for
+them and cannot reach them. The allocation is torn down for the same reason a partial fleet
+is. The plugin log carries the `scontrol` error immediately above this line.
+
+- Check that the plugin runs as a user permitted to run `scontrol update` (usually
+  `slurm` or `root`)
+- Confirm `SlurmBinPath` in `config.json` points at the real `scontrol`
+- Confirm slurmctld is reachable from the headnode
 
 ### Nodes marked DOWN while the plugin is still waiting
 

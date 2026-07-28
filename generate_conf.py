@@ -61,7 +61,10 @@ with open(gres_filename, 'w') as g:
                         typestring="Type=%s" % fields[1]
                         qty=fields[2]
                     else:
-                        assert false, "Invalid GRES field in %" % nodegroup
+                        raise AssertionError(
+                            'Invalid GRES specification "%s" in node group %s: expected '
+                            'name:count or name:type:count'
+                            %(value, common.get_node_name(partition, nodegroup)))
 
                     if name.upper() == "GPU":
                         qty=int(qty)

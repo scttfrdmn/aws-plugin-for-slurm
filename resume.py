@@ -318,6 +318,10 @@ for partition_name, nodegroups in nodes_to_resume.items():
         wait_for_all = mpi_options.get('WaitForAllNodes', True)
         use_sync_launch = enable_mpi and wait_for_all and nb_nodes_to_resume > 1
 
+        # Nodes whose instance launched but could not be configured. These consumed a
+        # node_id, so they are not covered by the fleet-shortfall count at the end.
+        nb_skipped_nodes = 0
+
         if use_sync_launch:
             logger.info('Sync launch enabled: launching %d nodes as an all-or-nothing group',
                         nb_nodes_to_resume)
@@ -365,6 +369,7 @@ for partition_name, nodegroups in nodes_to_resume.items():
                 continue
 
             # Tag and update Slurm for all ready instances
+            failed_registrations = []
             for instance_id, instance_info in ready_instances.items():
                 ip_address = instance_info['ip']
                 hostname = instance_info['hostname']
@@ -409,6 +414,20 @@ for partition_name, nodegroups in nodes_to_resume.items():
                     logger.debug('Updated node information in Slurm %s', node_name)
                 except Exception as e:
                     logger.error('Failed to update node information in Slurm %s - %s', node_name, e)
+                    failed_registrations.append(instance_id)
+
+            # A node whose NodeAddr never reached Slurm is unreachable, so the allocation
+            # is incomplete for the same reason a partial fleet is. Give it all back
+            # rather than let the job stall until ResumeTimeout.
+            if failed_registrations:
+                logger.error(
+                    'Sync launch failed: %d of %d nodes could not be registered in Slurm. '
+                    'A partial allocation cannot satisfy a tightly-coupled job.',
+                    len(failed_registrations), len(ready_instances)
+                )
+                terminate_instances(client, list(ready_instances.keys()))
+                log_fleet_errors(response_fleet)
+                continue
 
             logger.info('Sync launch: all %d nodes configured and ready', len(ready_instances))
 
@@ -439,12 +458,24 @@ for partition_name, nodegroups in nodes_to_resume.items():
                     node_id_index += 1
                     node_name = common.get_node_name(partition_name, nodegroup_name, node_id)
 
-                    # Isolate details for the current instance
+                    # Isolate details for the current instance. Reset per instance: if
+                    # describe_instances returns no match (eventual consistency, or no
+                    # private IP assigned yet) these would otherwise keep the previous
+                    # instance's values and register the wrong IP against this node.
+                    ip_address = None
+                    hostname = None
                     for reservation in response_describe['Reservations']:
                         for instance_details in reservation['Instances']:
                             if instance_details['InstanceId'] == instance_id:
-                                ip_address = instance_details['PrivateIpAddress']
-                                hostname = 'ip-%s' %'-'.join(ip_address.split('.'))
+                                ip_address = instance_details.get('PrivateIpAddress')
+                                if ip_address:
+                                    hostname = 'ip-%s' %'-'.join(ip_address.split('.'))
+
+                    if not ip_address:
+                        logger.error('No private IP address for instance %s (node %s) - '
+                                     'skipping' %(instance_id, node_name))
+                        nb_skipped_nodes += 1
+                        continue
 
                     logger.info('Launched node %s %s %s' %(node_name, instance_id, ip_address))
 
@@ -488,8 +519,9 @@ for partition_name, nodegroups in nodes_to_resume.items():
                     except Exception as e:
                         logger.error('Failed to update node information in Slurm %s - %s' %(node_name, e))
 
-        # Log how many nodes failed to launch
-        nb_failed_nodes = nb_nodes_to_resume - node_id_index
+        # Log how many nodes failed to launch: those the fleet never returned, plus those
+        # whose instance launched but could not be configured
+        nb_failed_nodes = nb_nodes_to_resume - node_id_index + nb_skipped_nodes
         if nb_failed_nodes > 0:
             logger.warning('Failed to launch %s nodes' %nb_failed_nodes)
 

@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed — correctness and upstream parity (v3.2)
+
+- `change_state.py` power-save rules never fired. Slurm emits compound states like
+  `DOWN+CLOUD+POWERED_DOWN`, and the code tested list membership for a bare `'POWER'`,
+  which never matches `POWERED_DOWN`/`POWERING_UP`/`POWER_DOWN`. A node that hit
+  `ResumeTimeout` was therefore sent `POWER_DOWN` again instead of being reset to `IDLE`,
+  leaving it permanently unavailable, and the `DRAIN` + power-save `UNDRAIN` rule never ran
+  at all. Carried from upstream PR #36.
+- `common.py:update_node()` ignored the `scontrol` exit code, so a failed
+  `scontrol update` was logged as success. `change_state.py` reported state changes that
+  never happened and `resume.py` reported nodes as configured when they were never
+  registered. `run_scommand()` gained an opt-in `check` argument; read-only callers keep
+  their tolerant behavior. Carried from upstream PR #36.
+- Synchronous launch now tears down the allocation when a node cannot be registered in
+  Slurm. Previously it logged "all N nodes configured and ready" even if every
+  `scontrol update` failed — the same false success that all-or-nothing launch exists to
+  prevent. Exposed by the `update_node` fix above.
+- `resume.py` asynchronous path assigned the *previous* instance's IP address to a node
+  when `describe_instances` returned no match for it, registering two Slurm nodes against
+  one instance; on the first iteration it raised `NameError` and aborted the whole resume.
+  Both now log a per-node error and skip.
+- `common.py:get_node_state()` removed. It referenced two undefined variables
+  (`scontrol_path`, `arguments`) and had no callers.
+- `generate_conf.py` raised `NameError: name 'false' is not defined` on a malformed `Gres`
+  specification, via `assert false` plus an incomplete format string. It now raises an
+  error naming the offending value and node group.
+- Warn when an MPI-enabled partition sets `OverSubscribe` to a value that permits sharing
+  (`YES`/`FORCE`). `NO` and `EXCLUSIVE` are both accepted.
+- Fork-specific URLs in `CHANGELOG.md`, `CONTRIBUTING.md`, `docs/cloudformation.md`, and
+  `docs/upgrade-guide.md` pointed at `aws-samples`, where the referenced `plugin-v3` branch
+  does not exist.
+
 ### Added — tightly-coupled workload support (v3.1)
 
 Three opt-in `partitions.json` settings, all off by default. Node groups that do not set them
@@ -123,7 +155,7 @@ behave exactly as on v2.
 
 Initial release by AWS of the Slurm cloud bursting plugin.
 
-[Unreleased]: https://github.com/aws-samples/aws-plugin-for-slurm/compare/plugin-v3...HEAD
-[3.0.0]: https://github.com/aws-samples/aws-plugin-for-slurm/compare/plugin-v2...plugin-v3
+[Unreleased]: https://github.com/scttfrdmn/aws-plugin-for-slurm/compare/plugin-v3...HEAD
+[3.0.0]: https://github.com/scttfrdmn/aws-plugin-for-slurm/compare/plugin-v2...plugin-v3
 [2.0.0]: https://github.com/aws-samples/aws-plugin-for-slurm/compare/master...plugin-v2
 [1.0.0]: https://github.com/aws-samples/aws-plugin-for-slurm/releases/tag/v1.0.0

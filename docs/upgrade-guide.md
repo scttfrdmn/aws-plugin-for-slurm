@@ -82,7 +82,7 @@ git checkout plugin-v3
 # Or download directly
 cd /path/to/plugin
 for file in common.py resume.py suspend.py generate_conf.py change_state.py; do
-  wget -O $file https://github.com/aws-samples/aws-plugin-for-slurm/raw/plugin-v3/$file
+  wget -O $file https://github.com/scttfrdmn/aws-plugin-for-slurm/raw/plugin-v3/$file
 done
 chmod +x *.py
 ```
