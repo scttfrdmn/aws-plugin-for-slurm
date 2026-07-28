@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- License reverted to **MIT-0** (MIT No Attribution) to match the upstream AWS plugin.
+  v3.0.0 had relicensed to Apache 2.0. Amazon's original license text is restored verbatim,
+  with the fork's modifications copyright retained. MIT-0 is the more permissive of the two
+  — it requires no attribution — so this does not restrict any existing use.
+
 ### Fixed — correctness and upstream parity (v3.2)
 
 - `change_state.py` power-save rules never fired. Slurm emits compound states like
@@ -98,11 +105,11 @@ behave exactly as on v2.
 - Testing and validation procedures
 - Upgrade guide from v2 to v3
 - Example configurations for common use cases
-- Apache 2.0 license
+- Apache 2.0 license *(later reverted to MIT-0 — see Unreleased)*
 - This CHANGELOG file
 
 ### Changed
-- License changed from MIT-0 to Apache 2.0
+- License changed from MIT-0 to Apache 2.0 *(later reverted — see Unreleased)*
 - Documentation split into modular files for better organization
 - README streamlined with quick start and better navigation
 - Configuration examples moved to dedicated examples directory

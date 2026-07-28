@@ -345,14 +345,13 @@ See [Manual Installation Guide](manual-installation.md) for fresh deployment.
 | Slurm 20.02+ | ✓ | ✓ | Same requirement |
 | Documentation | Old | New | Restructured in v3 |
 
-## License Change
+## License
 
-v3 introduces Apache 2.0 licensing:
+Unchanged from v2: **MIT-0** (MIT No Attribution), maintaining Amazon's copyright and
+adding a modifications copyright.
 
-- **v2**: MIT-0 (Amazon)
-- **v3**: Apache 2.0 (maintains Amazon copyright, adds modifications copyright)
-
-This does not affect your usage rights. Both are permissive open-source licenses.
+v3.0.0 briefly relicensed to Apache 2.0; that was reverted to match the upstream AWS
+plugin. Your usage rights are unaffected either way.
 
 ## Next Steps
 
