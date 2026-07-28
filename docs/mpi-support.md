@@ -131,6 +131,58 @@ Add to a node group in `partitions.json`:
 Setting `EnableMPISupport` on a node group has no effect on other node groups. Untouched
 node groups keep exact v2 behavior.
 
+### There is no `nfs` readiness check — gate `slurmd` instead
+
+An MPI job that starts before every node has the shared filesystem fails at the first
+collective read, which looks exactly like an application bug. So the obvious wish is an
+`nfs` health check. The plugin deliberately does not offer one.
+
+The headnode cannot observe a compute node's mount table. Every mechanism that would let it
+— SSH from the headnode, an agent on a side channel — adds a key-management or daemon
+dependency the plugin does not otherwise have, to answer a question the node itself already
+knows. A v3.1 build shipped an `nfs` value that validated and then unconditionally returned
+success; it was removed in `47dde28`, because a check that always passes is worse than no
+check at all.
+
+**Do this instead: do not let `slurmd` start until the mount is up.** The node then answers
+"am I ready" truthfully with the check that already exists, and the plugin needs to know
+nothing about your filesystem — NFS, EFS, FSx or anything else.
+
+Two ways, both in the node's own boot:
+
+```ini
+# /etc/systemd/system/slurmd.service.d/wait-for-nfs.conf
+# RequiresMountsFor= makes systemd order slurmd after this mount and fail it if the
+# mount fails, which is what you want: a node with no shared filesystem should not
+# register. Requires an /etc/fstab entry for the path.
+[Unit]
+RequiresMountsFor=/nfs
+```
+
+Or gate it in the boot script, which is the more robust option when the mount is configured
+at boot rather than baked into the AMI:
+
+```bash
+# In slurm-init.sh, before `systemctl start slurmd`
+mount /nfs || { echo "ERROR: shared filesystem did not mount"; exit 1; }
+mountpoint -q /nfs || { echo "ERROR: /nfs is not a mountpoint"; exit 1; }
+systemctl start slurmd
+```
+
+With either in place, a node that cannot mount never opens port 6818, the `slurmd` check
+fails, and under `EnableMPISupport` the allocation is torn down with a clear reason instead
+of running a job that fails later on I/O.
+
+> **Ordering caveat if you are adapting the shipped example.** `examples/packer/` sets
+> `After=…remote-fs.target nfs.target` on `slurmd.service` *and* runs `systemctl enable
+> slurmd`. That `After=` does nothing on first boot, because no `/etc/fstab` entry exists at
+> AMI build time — it is written by `slurm-init.sh` at boot. What actually saves it is that
+> `slurmd` cannot start until Munge does, and the Munge key is fetched by that same script
+> after the mount succeeds. The gate is real but incidental. If you bake the Munge key into
+> the AMI — a reasonable thing to do to cut boot time — you remove the only thing ordering
+> `slurmd` after the mount, and `slurmd` will start at `multi-user.target` with no shared
+> filesystem. Add one of the two gates above before making that change.
+
 ### `TimeoutSeconds` must be less than `ResumeTimeout`
 
 This is the one setting that will bite you. `resume.py` now **blocks** for up to

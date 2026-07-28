@@ -1437,6 +1437,16 @@ fi
 echo "Mounting NFS..."
 sudo mount -a
 
+# Verify the shared filesystem before starting slurmd. `mount -a` returns 0 even when an
+# individual entry fails, so check the mountpoint explicitly. Exiting here is deliberate:
+# a node with no /nfs that registers anyway will accept an MPI job and fail it at the
+# first collective read, which looks like an application bug. If slurmd never starts, the
+# plugin's slurmd readiness check catches the node instead.
+if ! mountpoint -q "$NFS_EXPORT"; then
+    echo "ERROR: $NFS_EXPORT is not mounted - not starting slurmd"
+    exit 1
+fi
+
 # Start slurmd (systemd will handle this, but ensure it's up)
 echo "Starting slurmd..."
 sudo systemctl start slurmd

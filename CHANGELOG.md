@@ -29,6 +29,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `examples/*.json`, run the suite on 3.7/3.9/3.12/3.13, run the mutation tests, and check
   documentation links and the version floor.
 
+### Decided — no `nfs` readiness check (#10)
+
+The `nfs` health check will not come back. The headnode cannot observe a compute node's
+mount table, and every mechanism that would let it (SSH from the headnode, an agent) adds a
+key-management or daemon dependency to answer a question the node already knows. The v3.1
+stub that validated and then always returned success was removed in `47dde28`; a check that
+always passes is worse than none.
+
+The documented answer is to gate `slurmd` on the mount in the node's own boot, so the
+existing `slurmd` check covers it and the plugin needs to know nothing about the filesystem.
+`docs/mpi-support.md` gives both a `RequiresMountsFor=` drop-in and a boot-script guard.
+
+While writing this up, the shipped `examples/packer/` template turned out to gate `slurmd`
+on the mount only by accident: its `After=…remote-fs.target nfs.target` cannot order against
+a mount with no `/etc/fstab` entry at AMI build time, since `slurm-init.sh` writes that entry
+at boot. What actually held was that `slurmd` requires Munge, whose key the same script
+fetches after mounting. Baking the Munge key into the AMI — a reasonable optimization — would
+have removed the only ordering and let `slurmd` start with no shared filesystem. Now explicit:
+
+- `examples/packer/` gained a `mountpoint -q` `ExecStartPre` on `slurmd.service` and a
+  `mountpoint` check after `mount` in the boot script.
+- The walkthrough script in `docs/onprem-to-aws-bursting.md` used `mount -a`, which returns
+  0 even when an individual entry fails, and then started `slurmd` regardless. It now
+  verifies the mountpoint and exits instead.
+
 ### Fixed
 
 - `resume.py` and `health_check.py` called `subprocess.run(capture_output=True)`, which is
