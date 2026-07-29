@@ -70,12 +70,16 @@ run_case() {
         [ -f /rig/resume.log ] || { echo 'RIG BROKEN: ResumeProgram was never invoked'; \
             grep -iE 'power|error' /var/log/slurm/slurmctld.log | tail -5; exit 1; }
 
+        # Track the job alongside the node. The node state is the mechanism, but the job is
+        # what the operator actually sees, and 'CONFIGURING for three minutes then gone' is
+        # the symptom that sends people to the docs.
         START=\$(date +%s)
         while [ \$(( \$(date +%s) - START )) -lt $observe ]; do
-            printf 't+%-5s %-32s %s\n' \
+            printf 't+%-5s %-32s %-22s job=%s\n' \
               \"\$(( \$(date +%s) - START ))s\" \
               \"\$(scontrol show node aws-compute-0 | grep -o 'State=[^ ]*')\" \
-              \"\$(sinfo -h -o '%E' -n aws-compute-0)\"
+              \"\$(sinfo -h -o '%E' -n aws-compute-0)\" \
+              \"\$(squeue -h -o '%T' -j 1 2>/dev/null || echo gone)\"
             sleep 20
         done
 
@@ -89,7 +93,7 @@ run_case() {
             echo 'no - it had already finished'
         fi
         echo '--- slurmctld verdict ---'
-        grep -E 'waking nodes|not resumed by ResumeTimeout' /var/log/slurm/slurmctld.log || echo '(no ResumeTimeout line - nodes resumed in time)'
+        grep -E 'waking nodes|not resumed by ResumeTimeout|Killing JobId' /var/log/slurm/slurmctld.log || echo '(no ResumeTimeout line - nodes resumed in time)'
         echo '--- final ---'
         scontrol show node aws-compute-0 | grep -E 'State=|Reason=' || true
     "
@@ -116,7 +120,9 @@ echo "  STILL RUNNING. Fires between +0.8s and +10.0s past the 180s deadline acr
 echo "  (Slurm's power-save poll interval) — so treat it as no grace period at all."
 echo
 echo "Case 2 (ResumeTimeout=600, registers at 40s): no ResumeTimeout line in"
-echo "  slurmctld.log even after 200s — past the 180s that killed case 1."
+echo "  slurmctld.log even after 200s — past the 180s that killed case 1 — and the job"
+echo "  is still CONFIGURING rather than gone. Job survival is the clearest contrast:"
+echo "  case 1's job disappears at the deadline, case 2's does not."
 echo
 echo "Note on case 2's state: nodes stay MIXED+CLOUD+NOT_RESPONDING+POWERING_UP rather"
 echo "than reaching 'allocated'. That is expected here and not a failure — 'scontrol"

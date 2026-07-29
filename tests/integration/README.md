@@ -26,8 +26,12 @@ Two cases, deliberately inverse:
 
 | Case | `slurm.conf` | `ResumeProgram` | Expected |
 |---|---|---|---|
-| `timeout-too-long` | `ResumeTimeout=180` | blocks 300s, never registers | nodes `DOWN`, `Reason=ResumeTimeout reached`, resume program still running |
-| `timeout-ok` | `ResumeTimeout=600` | waits 40s, then registers each node | no `ResumeTimeout` line in the log at all |
+| `timeout-too-long` | `ResumeTimeout=180` | blocks 300s, never registers | nodes `DOWN`, `Reason=ResumeTimeout reached`, job killed, resume program still running |
+| `timeout-ok` | `ResumeTimeout=600` | waits 40s, then registers each node | no `ResumeTimeout` line at all, job still `CONFIGURING` past 180s |
+
+Both cases print the node state *and* the job state each poll. The node state is the
+mechanism; the job is what an operator actually sees, and job survival is the sharpest
+contrast between the two cases — case 1's job vanishes at the deadline, case 2's does not.
 
 The second case exists so the first proves something. A rig that only ever produces the
 failure has not shown the failure is caused by the timeout — it may just be broken.

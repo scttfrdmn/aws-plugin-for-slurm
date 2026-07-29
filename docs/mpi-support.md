@@ -214,8 +214,9 @@ See [Performance Tuning](performance-tuning.md#resumetimeout).
 never registers the nodes):
 
 ```
-[17:28:58.605] POWER: power_save: pid 55 waking nodes aws-compute-[0-3]
-[17:31:59.394] node aws-compute-0 not resumed by ResumeTimeout(180) - marking down and power_save
+[17:41:49] sched: _slurm_rpc_allocate_resources JobId=1 NodeList=aws-compute-[0-3]
+[17:44:50] node aws-compute-0 not resumed by ResumeTimeout(180) - marking down and power_save
+[17:44:50] Killing JobId=1 on failed node aws-compute-0
 ```
 
 The nodes went `DOWN` 180.8s after the wake call — while the resume program was still
@@ -224,10 +225,11 @@ notices on its power-save poll, which runs about every 10 seconds, so **the dead
 within a second of `ResumeTimeout` and you have no usable grace period.** Do not budget
 against the poll interval.
 
-Final state was `DOWN+CLOUD+POWERED_DOWN+NOT_RESPONDING` with `Reason=ResumeTimeout reached`;
-the job that requested them was killed. Nodes sat in `mixed#` (CONFIGURING) for the whole
-wait, so **nothing distinguishes a healthy slow launch from a doomed one until the timeout
-fires.**
+Final state was `DOWN+CLOUD+POWERED_DOWN+NOT_RESPONDING` with `Reason=ResumeTimeout reached`,
+and the job was killed the same second. From the operator's side the whole failure looks like
+this: the job sits in `CONFIGURING` for three minutes with `Reason=None`, the nodes sit in
+`mixed#`, and then the job is simply gone — so **nothing distinguishes a healthy slow launch
+from a doomed one until the timeout fires.**
 
 The inverse (`ResumeTimeout=600`, a 40s wait that then registers each node with `scontrol
 update nodename=… nodeaddr=…`) logged no `ResumeTimeout` line at all, watched well past the
