@@ -285,6 +285,8 @@ This JSON file specifies the groups of nodes and associated partitions that Slur
 
 **Warning**: `network` uses ICMP and is **not** enabled by default. If your security group blocks ICMP, enabling it causes every node to fail its check and the entire healthy allocation to be terminated at the timeout.
 
+`slurmd` and `network` are the only valid values; anything else is rejected at startup. There is deliberately no `nfs` check — the headnode cannot see a compute node's mount table, so gate `slurmd` on the mount in the node's own boot instead and the `slurmd` check covers it. See [MPI Support - There is no `nfs` readiness check](mpi-support.md#there-is-no-nfs-readiness-check-gate-slurmd-instead).
+
 **Warning**: `resume.py` blocks for up to `TimeoutSeconds`. Slurm counts down `ResumeTimeout` independently, so if `TimeoutSeconds >= ResumeTimeout` Slurm marks nodes `DOWN` while the plugin is still waiting. Keep `TimeoutSeconds <= ResumeTimeout - 120`.
 
 ##### PartitionOptions

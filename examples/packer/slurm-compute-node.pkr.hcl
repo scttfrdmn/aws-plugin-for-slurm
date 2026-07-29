@@ -288,6 +288,16 @@ build {
       [Service]
       Type=forking
       EnvironmentFile=-/etc/sysconfig/slurmd
+      # Refuse to start without the shared filesystem. A node that registers with Slurm
+      # but has no /nfs will accept an MPI job and fail it at the first collective read,
+      # which looks like an application bug. Failing to start instead means the plugin's
+      # slurmd readiness check catches it and, under EnableMPISupport, tears the
+      # allocation down with a clear reason.
+      #
+      # This is a guard, not the primary mechanism: the After= above cannot order against
+      # a mount that has no /etc/fstab entry at AMI build time, since slurm-init.sh writes
+      # it at boot. See docs/mpi-support.md, "There is no nfs readiness check".
+      ExecStartPre=/bin/bash -c "/bin/mountpoint -q ${var.nfs_export} || { echo 'slurmd not starting: ${var.nfs_export} is not mounted' >&2; exit 1; }"
       ExecStartPre=/bin/bash -c "/bin/systemctl set-environment SLURM_NODENAME=$(/usr/local/bin/get_slurm_nodename)"
       ExecStart=${var.slurm_prefix}/sbin/slurmd -N $SLURM_NODENAME $SLURMD_OPTIONS
       ExecReload=/bin/kill -HUP $MAINPID
@@ -342,6 +352,14 @@ build {
       mount $NFS_EXPORT || {
           echo "ERROR: Failed to mount NFS from $HEADNODE_IP:$NFS_EXPORT"
           echo "Check network connectivity and NFS exports on headnode"
+          exit 1
+      }
+
+      # Confirm it is actually a mountpoint before going any further. Exiting here means
+      # slurmd never starts, so the node never registers, so the plugin's readiness check
+      # fails it instead of Slurm handing it an MPI job it cannot run.
+      mountpoint -q $NFS_EXPORT || {
+          echo "ERROR: $NFS_EXPORT is not a mountpoint after a successful mount"
           exit 1
       }
 

@@ -45,20 +45,30 @@ for partition_name, nodegroups in nodes_to_suspend.items():
                 ]
             )
         except Exception as e:
-            logger.critical('Failed to describe instances to terminate - %s' %e)
-        
+            # Move on to the next node group rather than falling through to an
+            # unassigned response_describe, which raised NameError and killed the whole
+            # suspend run - leaving every remaining instance running and billing.
+            logger.error('Failed to describe instances to terminate for partition=%s '
+                         'nodegroup=%s - %s' %(partition_name, nodegroup_name, e))
+            continue
+
         # Terminate each instance
         for reservation in response_describe['Reservations']:
             for instance in reservation['Instances']:
                 instance_id = instance['InstanceId']
-                
+
+                # Reset per instance: an instance without a Name tag would otherwise be
+                # logged under the previous instance's node name.
+                node_name = None
+                for tag in instance.get('Tags', []):
+                    if tag['Key'] == 'Name':
+                        node_name = tag['Value']
+
                 try:
-                    for tag in instance['Tags']:
-                        if tag['Key'] == 'Name':
-                            node_name = tag['Value']
-                            
                     client.terminate_instances(InstanceIds=[instance_id])
                     logger.info('Terminated instance %s %s' %(node_name, instance_id))
                 except Exception as e:
-                    logger.info('Failed to terminate instance %s %s' %(node_name, instance_id))
+                    logger.error('Failed to terminate instance %s %s - %s. It may still '
+                                 'be running and incurring charges'
+                                 %(node_name, instance_id, e))
                 

@@ -1437,6 +1437,16 @@ fi
 echo "Mounting NFS..."
 sudo mount -a
 
+# Verify the shared filesystem before starting slurmd. `mount -a` returns 0 even when an
+# individual entry fails, so check the mountpoint explicitly. Exiting here is deliberate:
+# a node with no /nfs that registers anyway will accept an MPI job and fail it at the
+# first collective read, which looks like an application bug. If slurmd never starts, the
+# plugin's slurmd readiness check catches the node instead.
+if ! mountpoint -q "$NFS_EXPORT"; then
+    echo "ERROR: $NFS_EXPORT is not mounted - not starting slurmd"
+    exit 1
+fi
+
 # Start slurmd (systemd will handle this, but ensure it's up)
 echo "Starting slurmd..."
 sudo systemctl start slurmd
@@ -2353,9 +2363,9 @@ See [Security Best Practices](security.md) for details.
 
 - **Tune performance**: [Performance Tuning Guide](performance-tuning.md)
 - **Add monitoring**: [Monitoring Guide](monitoring.md)
-- **Configure GPU bursting**: [Advanced Usage - GPU Section](advanced-usage.md#gpu-support)
-- **Set up Spot instances**: [Configuration Reference - Spot Options](configuration.md#spot-instances)
-- **Multi-region bursting**: [Advanced Usage - Multi-Region](advanced-usage.md#multi-region)
+- **Configure GPU bursting**: [Configuration Reference - GPU Configuration](configuration.md#gpu-configuration)
+- **Set up Spot instances**: [Configuration Reference - SpotOptions](configuration.md#spotoptions)
+- **Multi-region bursting**: [Advanced Usage - Multi-Region Deployments](advanced-usage.md#multi-region-deployments)
 
 ---
 

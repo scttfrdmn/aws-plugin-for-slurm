@@ -1,0 +1,155 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The plugin is invoked by slurmctld as bare scripts with only boto3 available, so a
+  # syntax error is a cluster that silently stops scaling. This job is the cheap gate.
+  compile:
+    name: Compile (Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Python 3.6 is the documented floor but is not installable on any current GitHub
+        # runner; tests/test_python_floor.py enforces it statically instead. 3.7 is the
+        # oldest version actually runnable, and it is worth keeping because it is the
+        # closest thing to the floor — but actions/setup-python has no 3.7 build for
+        # Ubuntu 24.04, so that one job is pinned to 22.04. When 22.04 retires, drop 3.7
+        # and rely on the static floor check.
+        include:
+          - {python-version: '3.7', os: ubuntu-22.04}
+          - {python-version: '3.8', os: ubuntu-latest}
+          - {python-version: '3.9', os: ubuntu-latest}
+          - {python-version: '3.10', os: ubuntu-latest}
+          - {python-version: '3.11', os: ubuntu-latest}
+          - {python-version: '3.12', os: ubuntu-latest}
+          - {python-version: '3.13', os: ubuntu-latest}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Byte-compile every plugin script
+        # py_compile does not execute imports, so this needs no boto3.
+        run: python -m py_compile common.py resume.py suspend.py change_state.py generate_conf.py health_check.py
+
+      - name: Byte-compile the test suite
+        run: python -m py_compile tests/*.py
+
+  # Every shipped example is something an operator will copy verbatim. A malformed one is
+  # a support ticket.
+  examples:
+    name: Example configs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Parse every JSON example
+        run: |
+          python - <<'PY'
+          import glob, json, sys
+
+          paths = sorted(glob.glob('examples/**/*.json', recursive=True))
+          if not paths:
+              sys.exit('No examples/*.json found - the glob or the layout changed')
+
+          failed = []
+          for path in paths:
+              try:
+                  with open(path) as f:
+                      json.load(f)
+              except ValueError as e:
+                  failed.append('%s: %s' % (path, e))
+              else:
+                  print('ok   %s' % path)
+
+          if failed:
+              sys.exit('\nMalformed JSON:\n  ' + '\n  '.join(failed))
+          print('\n%d example(s) parsed' % len(paths))
+          PY
+
+      - name: Validate examples against the plugin's own schema
+        # tests/test_validate.py runs every examples/*.json through common.validate_*, so
+        # this is covered by the test job too. Kept separate because a schema break here
+        # is an operator-facing bug, and the failure should say so on its own line.
+        run: python -m unittest tests.test_validate -v
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.7 pinned to 22.04 for the same reason as the compile job. Oldest and newest
+        # matter most; the middle versions are a spot check.
+        include:
+          - {python-version: '3.7', os: ubuntu-22.04}
+          - {python-version: '3.9', os: ubuntu-latest}
+          - {python-version: '3.12', os: ubuntu-latest}
+          - {python-version: '3.13', os: ubuntu-latest}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Run the suite
+        # No dependency install: the suite shadows boto3 with tests/fake_boto3.py and
+        # stubs scontrol/sinfo, so it needs no AWS credentials and no Slurm controller.
+        # -t . so `tests.harness` imports resolve from the repo root.
+        run: python -m unittest discover -s tests -t . -v
+
+  # Proves the regression tests actually pin the bugs they name: each fixed bug is
+  # reintroduced into a copy of the plugin and the named tests must fail. Slower than the
+  # rest, so it is its own job rather than part of the matrix.
+  mutations:
+    name: Mutation tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Reintroduce each fixed bug and confirm a test catches it
+        env:
+          RUN_MUTATION_TESTS: '1'
+        run: python -m unittest tests.test_mutations -v
+
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check internal documentation links
+        # Internal links and anchors only - external URLs are deliberately not checked,
+        # so CI does not go red when somebody else's site is down.
+        run: python -m unittest tests.test_docs_links -v
+
+      - name: Check the documented Python floor still holds
+        run: python -m unittest tests.test_python_floor -v

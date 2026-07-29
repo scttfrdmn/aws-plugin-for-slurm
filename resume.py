@@ -160,9 +160,12 @@ def perform_health_checks(ip_address, checks):
 def ping_host(ip_address, timeout=3):
     """Ping a host to verify network connectivity"""
     try:
+        # stdout/stderr rather than capture_output: the latter is Python 3.7+, and the
+        # documented floor for this plugin is 3.6 (RHEL/CentOS 7 headnodes).
         result = subprocess.run(
             ['ping', '-c', '1', '-W', str(timeout), ip_address],
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=timeout + 1
         )
         return result.returncode == 0
