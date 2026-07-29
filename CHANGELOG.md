@@ -29,6 +29,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `examples/*.json`, run the suite on 3.7/3.9/3.12/3.13, run the mutation tests, and check
   documentation links and the version floor.
 
+### Verified — `ResumeTimeout` behavior against a real slurmctld (#12)
+
+`docs/mpi-support.md` asserted that Slurm marks cloud nodes `DOWN` when `ResumeTimeout`
+expires *while `ResumeProgram` is still running*, and the whole
+`TimeoutSeconds <= ResumeTimeout - 120` rule rests on it. That was read out of Slurm's
+source and documentation, never measured. It is now measured.
+
+`tests/integration/` runs a real `slurmctld` (Slurm 22.05.9 on Rocky 9) in a container with
+a stub `ResumeProgram`, so the behavior under test is Slurm's and nothing else. With
+`ResumeTimeout=180` and a resume program that blocks 300s, the nodes went `DOWN` 180.8s after
+the wake call — the resume program still running — logged as `not resumed by
+ResumeTimeout(180) - marking down and power_save`, final state
+`DOWN+CLOUD+POWERED_DOWN+NOT_RESPONDING`, `Reason=ResumeTimeout reached`. The inverse
+(`ResumeTimeout=600`, nodes registered at 40s) produced no `ResumeTimeout` line at all, even
+watched past 180s.
+
+Two things the measurement adds to the docs. Across four runs the delay past the deadline was
+0.8s, 1.5s, 9.5s and 10.0s — Slurm notices on a ~10s power-save poll, so the timeout can fire
+within a second of `ResumeTimeout` and there is no grace period to budget against. (An
+earlier draft of this section read a single sample as a constant ~11s overshoot; it is not.)
+And the nodes sit in `mixed#` for the entire wait, so nothing distinguishes a healthy slow
+launch from a doomed one until the timeout fires.
+
+The rig is not part of `unittest discover` and does not run in CI — it needs a container
+engine and about seven minutes. See `tests/integration/README.md`.
+
 ### Decided — no `nfs` readiness check (#10)
 
 The `nfs` health check will not come back. The headnode cannot observe a compute node's

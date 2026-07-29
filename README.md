@@ -351,6 +351,11 @@ RUN_MUTATION_TESTS=1 python3 -m unittest tests.test_mutations -v
 See [tests/README.md](tests/README.md) for how the sandbox works and what the suite does
 not cover. CI runs all of this on every push and pull request.
 
+One class of question needs a real Slurm controller — how slurmctld reacts to what the
+plugin does. [tests/integration/](tests/integration/) runs one in a container to measure
+it. It needs podman or docker, takes about seven minutes, and is not part of the suite
+above or of CI; run it by hand when you touch behavior that depends on Slurm's own timing.
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

@@ -80,9 +80,11 @@ behavior is tested without the wall-clock wait.
 
 ## What these tests do not cover
 
-- Anything requiring a live `slurmctld`. Whether Slurm marks nodes `DOWN` at
-  `ResumeTimeout` while `resume.py` is still waiting is issue #12, and it needs a real
-  controller — a stub `scontrol` has nothing to perform the transition.
+- Anything requiring a live `slurmctld` — a stub `scontrol` has nothing to perform a node
+  state transition. That class of question lives in [integration/](integration/), which
+  runs a real controller in a container. It is not part of `unittest discover` and does
+  not run in CI; run it by hand. The `ResumeTimeout` behavior (issue #12) is measured
+  there.
 - Real EC2 semantics. The fake returns what the scenario says. It was written against
   observed `CreateFleet`/`DescribeInstances` shapes, but it is not a validator: it will
   not catch a request field that AWS would reject.
