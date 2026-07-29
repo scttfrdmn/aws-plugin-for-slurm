@@ -45,8 +45,8 @@ ResumeTimeout(180) - marking down and power_save`, final state
 (`ResumeTimeout=600`, nodes registered at 40s) produced no `ResumeTimeout` line at all, even
 watched past 180s.
 
-Two things the measurement adds to the docs. Across four runs the delay past the deadline was
-0.8s, 1.5s, 9.5s and 10.0s — Slurm notices on a ~10s power-save poll, so the timeout can fire
+Two things the measurement adds to the docs. Across six runs the delay past the deadline ranged
+from 0.8s to 10.0s — Slurm notices on a ~10s power-save poll, so the timeout can fire
 within a second of `ResumeTimeout` and there is no grace period to budget against. (An
 earlier draft of this section read a single sample as a constant ~11s overshoot; it is not.)
 And the nodes sit in `mixed#` for the entire wait, so nothing distinguishes a healthy slow

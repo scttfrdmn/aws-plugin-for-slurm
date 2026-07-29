@@ -220,7 +220,7 @@ never registers the nodes):
 ```
 
 The nodes went `DOWN` 180.8s after the wake call — while the resume program was still
-running. Across four runs the delay past the deadline was 0.8s, 1.5s, 9.5s and 10.0s: Slurm
+running. Across six runs the delay past the deadline ranged from 0.8s to 10.0s: Slurm
 notices on its power-save poll, which runs about every 10 seconds, so **the deadline can fire
 within a second of `ResumeTimeout` and you have no usable grace period.** Do not budget
 against the poll interval.
