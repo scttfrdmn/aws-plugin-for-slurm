@@ -37,7 +37,7 @@ The second case exists so the first proves something. A rig that only ever produ
 failure has not shown the failure is caused by the timeout — it may just be broken.
 
 Run it more than once if you care about the timing. The delay between `ResumeTimeout`
-expiring and the nodes going `DOWN` varied from 0.8s to 10.0s across four runs, because
+expiring and the nodes going `DOWN` varied from 0.8s to 10.0s across six runs, because
 Slurm notices on a periodic power-save poll. A single run reads like a constant offset and
 invites treating it as slack; it is not slack.
 
