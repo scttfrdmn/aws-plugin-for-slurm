@@ -210,6 +210,38 @@ This is a warning, not an error — `config.json` is not necessarily the authori
 template sets `ResumeTimeout: 600`, which accommodates the default `TimeoutSeconds: 300`.
 See [Performance Tuning](performance-tuning.md#resumetimeout).
 
+**Observed** (Slurm 22.05.9, `ResumeTimeout=180`, a `ResumeProgram` that blocks 300s and
+never registers the nodes):
+
+```
+[17:41:49] sched: _slurm_rpc_allocate_resources JobId=1 NodeList=aws-compute-[0-3]
+[17:44:50] node aws-compute-0 not resumed by ResumeTimeout(180) - marking down and power_save
+[17:44:50] Killing JobId=1 on failed node aws-compute-0
+```
+
+The nodes went `DOWN` 180.8s after the wake call — while the resume program was still
+running. Across four runs the delay past the deadline was 0.8s, 1.5s, 9.5s and 10.0s: Slurm
+notices on its power-save poll, which runs about every 10 seconds, so **the deadline can fire
+within a second of `ResumeTimeout` and you have no usable grace period.** Do not budget
+against the poll interval.
+
+Final state was `DOWN+CLOUD+POWERED_DOWN+NOT_RESPONDING` with `Reason=ResumeTimeout reached`,
+and the job was killed the same second. From the operator's side the whole failure looks like
+this: the job sits in `CONFIGURING` for three minutes with `Reason=None`, the nodes sit in
+`mixed#`, and then the job is simply gone — so **nothing distinguishes a healthy slow launch
+from a doomed one until the timeout fires.**
+
+The inverse (`ResumeTimeout=600`, a 40s wait that then registers each node with `scontrol
+update nodename=… nodeaddr=…`) logged no `ResumeTimeout` line at all, watched well past the
+180s that killed the first case.
+
+Two practical consequences: the `- 120` above is a real buffer rather than a round number,
+and because Slurm counts from *its* wake call, any time the plugin spends before its wait
+loop — `CreateFleet`, `describe_instances` polling — is already on the clock.
+
+Both cases are reproducible: [`tests/integration/`](../tests/integration/) runs a real
+`slurmctld` in a container and measures them.
+
 ### `ResumeRate` must not split the allocation
 
 Slurm launches at most `ResumeRate` nodes per minute, calling `ResumeProgram` once per

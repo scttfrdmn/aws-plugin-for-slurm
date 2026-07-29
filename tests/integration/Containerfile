@@ -1,0 +1,23 @@
+# A real slurmctld for the one class of question the unit suite cannot answer: how Slurm
+# itself reacts to what the plugin does. See README.md in this directory.
+#
+# Slurm 22.05.9 from EPEL - no source build. Close enough to the 20.02/22.x range this
+# plugin targets for ResumeTimeout semantics, which have not changed in that window.
+FROM docker.io/library/rockylinux:9
+
+RUN dnf install -y -q epel-release dnf-plugins-core \
+ && dnf config-manager --set-enabled crb \
+ && dnf install -y -q munge slurm slurm-slurmctld slurm-slurmd slurm-libs python3 procps-ng \
+ && dnf clean all
+
+# The EPEL packages do not create the service account.
+RUN getent group slurm >/dev/null || groupadd -r slurm \
+ && getent passwd slurm >/dev/null || useradd -r -g slurm -s /sbin/nologin slurm
+
+RUN /usr/sbin/create-munge-key -f \
+ && mkdir -p /var/spool/slurmctld /var/spool/slurmd /var/log/slurm /etc/slurm /run/slurm /rig \
+ && chown -R slurm:slurm /var/spool/slurmctld /var/spool/slurmd /var/log/slurm /run/slurm \
+ && chmod 777 /rig
+
+COPY *.sh slurm.conf.* /rig/
+RUN chmod +x /rig/*.sh

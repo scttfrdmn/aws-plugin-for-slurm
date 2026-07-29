@@ -1,0 +1,30 @@
+ClusterName=rig
+SlurmctldHost=localhost
+SlurmUser=slurm
+StateSaveLocation=/var/spool/slurmctld
+SlurmctldLogFile=/var/log/slurm/slurmctld.log
+SlurmctldDebug=debug2
+SlurmctldPidFile=/run/slurm/slurmctld.pid
+SlurmdPidFile=/run/slurm/slurmd.pid
+SlurmdSpoolDir=/var/spool/slurmd
+SlurmdLogFile=/var/log/slurm/slurmd.log
+AuthType=auth/munge
+SchedulerType=sched/backfill
+SelectType=select/cons_tres
+ProctrackType=proctrack/linuxproc
+ReturnToService=2
+
+# Power save - the plugin's territory
+SuspendProgram=/rig/suspend_stub.sh
+ResumeProgram=/rig/resume_stub.sh
+SuspendTime=350
+SuspendRate=100
+ResumeRate=100
+ResumeTimeout=180
+SuspendTimeout=120
+TreeWidth=60000
+PrivateData=CLOUD
+DebugFlags=Power
+
+NodeName=aws-compute-[0-3] State=CLOUD CPUs=2 RealMemory=1000
+PartitionName=mpi Nodes=aws-compute-[0-3] Default=YES MaxTime=INFINITE State=UP
